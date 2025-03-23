@@ -108,29 +108,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         // Clear session
         session_destroy();
         
-        // Show success message and redirect
-        echo "<script>
-            document.body.innerHTML = `
-                <div style='position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-                     text-align: center; background-color: #d4edda; color: #155724; 
-                     padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);'>
-                    <h3 style='margin-bottom: 15px;'>Thank you for voting!</h3>
-                    <p style='margin-bottom: 20px;'>Your vote has been recorded successfully.</p>
-                    <div style='margin-top: 20px;'>
-                        <a href='index.php' class='btn btn-success'>Return to Home</a>
-                    </div>
-                </div>
-            `;
-            setTimeout(function() {
-                window.location.href = 'index.php';
-            }, 3000);
-        </script>";
+        // Return JSON response
+        header('Content-Type: application/json');
+        echo json_encode(['success' => true]);
         exit();
         
     } catch (Exception $e) {
         // Rollback transaction on error
         mysqli_rollback($conn);
-        $error = $e->getMessage();
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        exit();
     }
 }
 ?>
@@ -219,6 +207,26 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             color: #6c757d;
             font-size: 0.9rem;
         }
+        .modal-content {
+            border: none;
+            border-radius: 15px;
+        }
+        .modal-body {
+            padding: 2rem;
+        }
+        .bi-check-circle-fill {
+            animation: scaleIn 0.5s ease-out;
+        }
+        @keyframes scaleIn {
+            0% {
+                transform: scale(0);
+                opacity: 0;
+            }
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
     </style>
 </head>
 <body>
@@ -298,6 +306,46 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // Handle form submission
+        document.getElementById('votingForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Show loading state
+            const submitBtn = this.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Submitting...';
+            
+            // Submit the form
+            fetch(this.action, {
+                method: 'POST',
+                body: new FormData(this)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Show success modal
+                    const successModal = new bootstrap.Modal(document.getElementById('successModal'));
+                    successModal.show();
+                    
+                    // Redirect after 2 seconds
+                    setTimeout(() => {
+                        window.location.href = 'index.php';
+                    }, 2000);
+                } else {
+                    alert(data.message || 'Error submitting vote. Please try again.');
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalText;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error submitting vote. Please try again.');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            });
+        });
+
         // Add visual feedback for selected candidates
         document.querySelectorAll('.candidate-option').forEach(option => {
             option.addEventListener('click', function() {
@@ -317,5 +365,21 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             });
         });
     </script>
+
+    <!-- Success Modal -->
+    <div class="modal fade" id="successModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-body text-center p-5">
+                    <div class="mb-4">
+                        <i class="bi bi-check-circle-fill text-success" style="font-size: 4rem;"></i>
+                    </div>
+                    <h4 class="mb-3">Vote Submitted Successfully!</h4>
+                    <p class="text-muted">Thank you for participating in the election.</p>
+                    <p class="text-muted">Redirecting to home page...</p>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html> 

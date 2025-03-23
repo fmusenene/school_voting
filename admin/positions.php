@@ -8,68 +8,47 @@ if (!isset($_SESSION['admin_id'])) {
     exit();
 }
 
-// Handle form submission
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    if (isset($_POST['delete_positions'])) {
-        if (isset($_POST['selected_positions']) && is_array($_POST['selected_positions'])) {
-            $selected_positions = array_map('intval', $_POST['selected_positions']);
-            $positions_string = implode(',', $selected_positions);
+// Handle delete action
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action'])) {
+    if ($_POST['action'] == "delete" && isset($_POST['position_id'])) {
+        $position_id = (int)$_POST['position_id'];
+        
+        // Check if position has candidates
+        $check_sql = "SELECT COUNT(*) as count FROM candidates WHERE position_id = ?";
+        $check_stmt = mysqli_prepare($conn, $check_sql);
+        mysqli_stmt_bind_param($check_stmt, "i", $position_id);
+        mysqli_stmt_execute($check_stmt);
+        $result = mysqli_stmt_get_result($check_stmt);
+        $row = mysqli_fetch_assoc($result);
+        
+        if ($row['count'] > 0) {
+            $error = "Cannot delete position: There are candidates assigned to this position.";
+        } else {
+            $delete_sql = "DELETE FROM positions WHERE id = ?";
+            $delete_stmt = mysqli_prepare($conn, $delete_sql);
+            mysqli_stmt_bind_param($delete_stmt, "i", $position_id);
             
-            // Delete the selected positions
-            $delete_sql = "DELETE FROM positions WHERE id IN ($positions_string)";
-            if (mysqli_query($conn, $delete_sql)) {
-                $success = "Selected positions deleted successfully!";
+            if (mysqli_stmt_execute($delete_stmt)) {
+                header("location: positions.php");
+                exit();
             } else {
-                $error = "Error deleting positions: " . mysqli_error($conn);
+                $error = "Error deleting position: " . mysqli_error($conn);
             }
         }
-    } else if (isset($_POST['action'])) {
-        switch ($_POST['action']) {
-            case 'create':
-                $election_id = $_POST['election_id'];
-                $title = mysqli_real_escape_string($conn, $_POST['title']);
-                $description = mysqli_real_escape_string($conn, $_POST['description']);
-                
-                $sql = "INSERT INTO positions (election_id, title, description) VALUES (?, ?, ?)";
-                $stmt = mysqli_prepare($conn, $sql);
-                mysqli_stmt_bind_param($stmt, "iss", $election_id, $title, $description);
-                
-                if (mysqli_stmt_execute($stmt)) {
-                    $success = "Position created successfully!";
-                } else {
-                    $error = "Error creating position: " . mysqli_error($conn);
-                }
-                break;
-                
-            case 'update':
-                $id = $_POST['id'];
-                $title = mysqli_real_escape_string($conn, $_POST['title']);
-                $description = mysqli_real_escape_string($conn, $_POST['description']);
-                
-                $sql = "UPDATE positions SET title = ?, description = ? WHERE id = ?";
-                $stmt = mysqli_prepare($conn, $sql);
-                mysqli_stmt_bind_param($stmt, "ssi", $title, $description, $id);
-                
-                if (mysqli_stmt_execute($stmt)) {
-                    $success = "Position updated successfully!";
-                } else {
-                    $error = "Error updating position: " . mysqli_error($conn);
-                }
-                break;
-                
-            case 'delete':
-                $id = $_POST['id'];
-                
-                $sql = "DELETE FROM positions WHERE id = ?";
-                $stmt = mysqli_prepare($conn, $sql);
-                mysqli_stmt_bind_param($stmt, "i", $id);
-                
-                if (mysqli_stmt_execute($stmt)) {
-                    $success = "Position deleted successfully!";
-                } else {
-                    $error = "Error deleting position: " . mysqli_error($conn);
-                }
-                break;
+    } else if ($_POST['action'] == "add") {
+        $election_id = (int)$_POST['election_id'];
+        $title = mysqli_real_escape_string($conn, $_POST['title']);
+        $description = mysqli_real_escape_string($conn, $_POST['description']);
+        
+        $sql = "INSERT INTO positions (election_id, title, description) VALUES (?, ?, ?)";
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, "iss", $election_id, $title, $description);
+        
+        if (mysqli_stmt_execute($stmt)) {
+            header("location: positions.php");
+            exit();
+        } else {
+            $error = "Error creating position: " . mysqli_error($conn);
         }
     }
 }
@@ -79,11 +58,11 @@ $elections_sql = "SELECT * FROM elections ORDER BY title";
 $elections_result = mysqli_query($conn, $elections_sql);
 
 // Get all positions with election titles
-$positions_sql = "SELECT p.*, e.title as election_title 
-                  FROM positions p 
-                  JOIN elections e ON p.election_id = e.id 
-                  ORDER BY e.title, p.title";
-$positions_result = mysqli_query($conn, $positions_sql);
+$sql = "SELECT p.*, e.title as election_title 
+        FROM positions p 
+        JOIN elections e ON p.election_id = e.id 
+        ORDER BY e.title, p.title";
+$result = mysqli_query($conn, $sql);
 ?>
 
 <!DOCTYPE html>
@@ -91,7 +70,7 @@ $positions_result = mysqli_query($conn, $positions_sql);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Manage Positions - School Voting System</title>
+    <title>Positions - School Voting System</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
     <style>
@@ -109,14 +88,12 @@ $positions_result = mysqli_query($conn, $positions_sql);
         .nav-link.active {
             color: white;
         }
-        .delete-btn {
-            background: #dc3545;
+        .modal-header-danger {
+            background-color: #dc3545;
             color: white;
-            border: none;
-            padding: 5px 10px;
-            border-radius: 3px;
-            cursor: pointer;
-            margin-left: 10px;
+        }
+        .modal-header-danger .btn-close {
+            color: white;
         }
     </style>
 </head>
@@ -170,15 +147,12 @@ $positions_result = mysqli_query($conn, $positions_sql);
             <!-- Main content -->
             <div class="col-md-9 col-lg-10 ms-auto px-4 py-3">
                 <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h2>Manage Positions</h2>
-                    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createPositionModal">
-                        <i class="bi bi-plus-circle"></i> Create New Position
+                    <h2>Positions</h2>
+                    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addPositionModal">
+                        <i class="bi bi-plus-lg"></i> Add Position
                     </button>
                 </div>
 
-                <?php if (isset($success)): ?>
-                    <div class="alert alert-success"><?php echo $success; ?></div>
-                <?php endif; ?>
                 <?php if (isset($error)): ?>
                     <div class="alert alert-danger"><?php echo $error; ?></div>
                 <?php endif; ?>
@@ -186,42 +160,48 @@ $positions_result = mysqli_query($conn, $positions_sql);
                 <div class="card">
                     <div class="card-body">
                         <div class="table-responsive">
-                            <form method="POST">
-                                <table class="table">
-                                    <thead>
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 50px">
+                                            <input type="checkbox" class="form-check-input" id="selectAll">
+                                        </th>
+                                        <th>Title</th>
+                                        <th>Election</th>
+                                        <th>Description</th>
+                                        <th style="width: 150px">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php while ($row = mysqli_fetch_assoc($result)): ?>
                                         <tr>
-                                            <th><input type="checkbox" class="select-all" onclick="toggleAll(this, 'position-checkbox')"> Select All</th>
-                                            <th>Election</th>
-                                            <th>Title</th>
-                                            <th>Description</th>
-                                            <th>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php while ($row = mysqli_fetch_assoc($positions_result)): ?>
-                                            <tr>
-                                                <td><input type="checkbox" name="selected_positions[]" value="<?php echo $row['id']; ?>" class="position-checkbox"></td>
-                                                <td><?php echo htmlspecialchars($row['election_title']); ?></td>
-                                                <td><?php echo htmlspecialchars($row['title']); ?></td>
-                                                <td><?php echo htmlspecialchars($row['description']); ?></td>
-                                                <td>
-                                                    <button type="button" class="btn btn-sm btn-primary" 
+                                            <td>
+                                                <input type="checkbox" class="form-check-input position-checkbox" 
+                                                       name="position_ids[]" value="<?php echo $row['id']; ?>">
+                                            </td>
+                                            <td><?php echo htmlspecialchars($row['title']); ?></td>
+                                            <td><?php echo htmlspecialchars($row['election_title']); ?></td>
+                                            <td><?php echo htmlspecialchars($row['description']); ?></td>
+                                            <td>
+                                                <div class="d-flex gap-2">
+                                                    <button type="button" 
+                                                            class="btn btn-sm btn-primary" 
                                                             data-bs-toggle="modal" 
                                                             data-bs-target="#editPositionModal<?php echo $row['id']; ?>">
                                                         <i class="bi bi-pencil"></i>
                                                     </button>
-                                                    <button type="button" class="btn btn-sm btn-danger" 
+                                                    <button type="button" 
+                                                            class="btn btn-sm btn-danger" 
                                                             data-bs-toggle="modal" 
                                                             data-bs-target="#deletePositionModal<?php echo $row['id']; ?>">
                                                         <i class="bi bi-trash"></i>
                                                     </button>
-                                                </td>
-                                            </tr>
-                                        <?php endwhile; ?>
-                                    </tbody>
-                                </table>
-                                <button type="submit" name="delete_positions" class="delete-btn" onclick="return confirm('Are you sure you want to delete the selected positions?')">Delete Selected</button>
-                            </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endwhile; ?>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -229,17 +209,17 @@ $positions_result = mysqli_query($conn, $positions_sql);
         </div>
     </div>
 
-    <!-- Create Position Modal -->
-    <div class="modal fade" id="createPositionModal" tabindex="-1">
-        <div class="modal-dialog">
+    <!-- Add Position Modal -->
+    <div class="modal fade" id="addPositionModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Create New Position</h5>
+                    <h5 class="modal-title">Add New Position</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <form method="post">
                     <div class="modal-body">
-                        <input type="hidden" name="action" value="create">
+                        <input type="hidden" name="action" value="add">
                         
                         <div class="mb-3">
                             <label class="form-label">Election</label>
@@ -268,21 +248,118 @@ $positions_result = mysqli_query($conn, $positions_sql);
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Create Position</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-plus-lg"></i> Add Position
+                        </button>
                     </div>
                 </form>
             </div>
         </div>
     </div>
 
+    <!-- Edit and Delete Modals -->
+    <?php 
+    mysqli_data_seek($result, 0);
+    while ($row = mysqli_fetch_assoc($result)): 
+    ?>
+    <!-- Edit Modal -->
+    <div class="modal fade" id="editPositionModal<?php echo $row['id']; ?>" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Position</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form method="post">
+                    <div class="modal-body">
+                        <input type="hidden" name="action" value="edit">
+                        <input type="hidden" name="position_id" value="<?php echo $row['id']; ?>">
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Election</label>
+                            <select class="form-select" name="election_id" required>
+                                <?php 
+                                mysqli_data_seek($elections_result, 0);
+                                while ($election = mysqli_fetch_assoc($elections_result)): 
+                                ?>
+                                    <option value="<?php echo $election['id']; ?>" 
+                                            <?php echo $election['id'] == $row['election_id'] ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars($election['title']); ?>
+                                    </option>
+                                <?php endwhile; ?>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Title</label>
+                            <input type="text" class="form-control" name="title" 
+                                   value="<?php echo htmlspecialchars($row['title']); ?>" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" name="description" rows="3"><?php 
+                                echo htmlspecialchars($row['description']); 
+                            ?></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-save"></i> Save Changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Modal -->
+    <div class="modal fade" id="deletePositionModal<?php echo $row['id']; ?>" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header modal-header-danger">
+                    <h5 class="modal-title">Delete Position</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete the position:</p>
+                    <p class="fw-bold"><?php echo htmlspecialchars($row['title']); ?></p>
+                    <p class="text-danger">This action cannot be undone!</p>
+                </div>
+                <div class="modal-footer">
+                    <form method="post" style="display: inline;">
+                        <input type="hidden" name="action" value="delete">
+                        <input type="hidden" name="position_id" value="<?php echo $row['id']; ?>">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-trash"></i> Delete Position
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php endwhile; ?>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-    function toggleAll(source, className) {
-        var checkboxes = document.getElementsByClassName(className);
-        for(var i=0; i<checkboxes.length; i++) {
-            checkboxes[i].checked = source.checked;
-        }
-    }
+        // Handle select all checkbox
+        document.getElementById('selectAll').addEventListener('change', function() {
+            const checkboxes = document.getElementsByClassName('position-checkbox');
+            for (let checkbox of checkboxes) {
+                checkbox.checked = this.checked;
+            }
+        });
+
+        // Handle individual checkboxes
+        document.getElementsByClassName('position-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', function() {
+                const allChecked = Array.from(document.getElementsByClassName('position-checkbox'))
+                    .every(cb => cb.checked);
+                document.getElementById('selectAll').checked = allChecked;
+            });
+        });
     </script>
 </body>
 </html> 

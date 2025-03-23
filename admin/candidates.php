@@ -9,80 +9,96 @@ if (!isset($_SESSION['admin_id'])) {
 }
 
 // Handle form submission
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    if (isset($_POST['action'])) {
-        if ($_POST['action'] == 'create') {
-            $name = mysqli_real_escape_string($conn, $_POST['name']);
-            $position_id = (int)$_POST['position_id'];
-            $description = mysqli_real_escape_string($conn, $_POST['description']);
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action'])) {
+    if ($_POST['action'] == "add" || $_POST['action'] == "edit") {
+        $position_id = (int)$_POST['position_id'];
+        $name = mysqli_real_escape_string($conn, $_POST['name']);
+        $description = mysqli_real_escape_string($conn, $_POST['description']);
+        $image_path = "";
+        
+        // Handle image upload
+        if (isset($_FILES['image']) && $_FILES['image']['error'] == 0) {
+            $target_dir = "../uploads/candidates/";
+            if (!file_exists($target_dir)) {
+                mkdir($target_dir, 0777, true);
+            }
             
-            // Handle image upload
-            $image_path = '';
-            if (isset($_FILES['image']) && $_FILES['image']['error'] == 0) {
-                $allowed = ['jpg', 'jpeg', 'png', 'gif'];
-                $filename = $_FILES['image']['name'];
-                $filetype = pathinfo($filename, PATHINFO_EXTENSION);
-                
-                if (in_array(strtolower($filetype), $allowed)) {
-                    // Create uploads directory if it doesn't exist
-                    $upload_dir = "../uploads/candidates/";
-                    if (!file_exists($upload_dir)) {
-                        mkdir($upload_dir, 0777, true);
-                    }
-                    
-                    // Generate unique filename
-                    $new_filename = uniqid() . '.' . $filetype;
-                    $target_path = $upload_dir . $new_filename;
-                    
-                    if (move_uploaded_file($_FILES['image']['tmp_name'], $target_path)) {
-                        $image_path = 'uploads/candidates/' . $new_filename;
-                    }
+            $file_extension = strtolower(pathinfo($_FILES["image"]["name"], PATHINFO_EXTENSION));
+            $new_filename = uniqid() . '.' . $file_extension;
+            $target_file = $target_dir . $new_filename;
+            
+            // Check if image file is actual image
+            $check = getimagesize($_FILES["image"]["tmp_name"]);
+            if ($check !== false) {
+                if (move_uploaded_file($_FILES["image"]["tmp_name"], $target_file)) {
+                    $image_path = "uploads/candidates/" . $new_filename;
                 }
             }
-            
-            $sql = "INSERT INTO candidates (name, position_id, description, image_path) 
-                    VALUES ('$name', $position_id, '$description', '$image_path')";
-            
-            if (mysqli_query($conn, $sql)) {
-                $success = "Candidate added successfully!";
+        }
+        
+        if ($_POST['action'] == "add") {
+            $sql = "INSERT INTO candidates (position_id, name, description, image_path) VALUES (?, ?, ?, ?)";
+            $stmt = mysqli_prepare($conn, $sql);
+            mysqli_stmt_bind_param($stmt, "isss", $position_id, $name, $description, $image_path);
+        } else {
+            $candidate_id = (int)$_POST['candidate_id'];
+            if ($image_path) {
+                $sql = "UPDATE candidates SET position_id = ?, name = ?, description = ?, image_path = ? WHERE id = ?";
+                $stmt = mysqli_prepare($conn, $sql);
+                mysqli_stmt_bind_param($stmt, "isssi", $position_id, $name, $description, $image_path, $candidate_id);
             } else {
-                $error = "Error adding candidate: " . mysqli_error($conn);
+                $sql = "UPDATE candidates SET position_id = ?, name = ?, description = ? WHERE id = ?";
+                $stmt = mysqli_prepare($conn, $sql);
+                mysqli_stmt_bind_param($stmt, "issi", $position_id, $name, $description, $candidate_id);
             }
-        } elseif ($_POST['action'] == 'delete' && isset($_POST['candidate_ids'])) {
-            $candidate_ids = array_map('intval', $_POST['candidate_ids']);
-            $ids_string = implode(',', $candidate_ids);
-            
-            // First get the image paths to delete the files
-            $images_sql = "SELECT image_path FROM candidates WHERE id IN ($ids_string)";
-            $images_result = mysqli_query($conn, $images_sql);
-            while ($row = mysqli_fetch_assoc($images_result)) {
-                if (!empty($row['image_path'])) {
-                    $file_path = "../" . $row['image_path'];
-                    if (file_exists($file_path)) {
-                        unlink($file_path);
-                    }
+        }
+        
+        if (mysqli_stmt_execute($stmt)) {
+            header("location: candidates.php");
+            exit();
+        } else {
+            $error = "Error " . ($_POST['action'] == "add" ? "creating" : "updating") . " candidate: " . mysqli_error($conn);
+        }
+    } else if ($_POST['action'] == "delete" && isset($_POST['candidate_id'])) {
+        $candidate_id = (int)$_POST['candidate_id'];
+        
+        // Get image path before deleting
+        $image_sql = "SELECT image_path FROM candidates WHERE id = ?";
+        $image_stmt = mysqli_prepare($conn, $image_sql);
+        mysqli_stmt_bind_param($image_stmt, "i", $candidate_id);
+        mysqli_stmt_execute($image_stmt);
+        $image_result = mysqli_stmt_get_result($image_stmt);
+        $image_row = mysqli_fetch_assoc($image_result);
+        
+        // Delete the candidate
+        $delete_sql = "DELETE FROM candidates WHERE id = ?";
+        $delete_stmt = mysqli_prepare($conn, $delete_sql);
+        mysqli_stmt_bind_param($delete_stmt, "i", $candidate_id);
+        
+        if (mysqli_stmt_execute($delete_stmt)) {
+            // Delete the image file if it exists
+            if ($image_row['image_path']) {
+                $image_file = "../" . $image_row['image_path'];
+                if (file_exists($image_file)) {
+                    unlink($image_file);
                 }
             }
-            
-            // Then delete the database records
-            $sql = "DELETE FROM candidates WHERE id IN ($ids_string)";
-            if (mysqli_query($conn, $sql)) {
-                $success = "Selected candidates deleted successfully!";
-            } else {
-                $error = "Error deleting candidates: " . mysqli_error($conn);
-            }
+            header("location: candidates.php");
+            exit();
+        } else {
+            $error = "Error deleting candidate: " . mysqli_error($conn);
         }
     }
 }
 
 // Get all positions for dropdown
 $positions_sql = "SELECT p.*, e.title as election_title 
-                  FROM positions p 
-                  JOIN elections e ON p.election_id = e.id 
-                  ORDER BY e.title, p.title";
+                 FROM positions p 
+                 JOIN elections e ON p.election_id = e.id 
+                 ORDER BY e.title, p.title";
 $positions_result = mysqli_query($conn, $positions_sql);
 
-// Get all candidates
+// Get all candidates with position and election titles
 $candidates_sql = "SELECT c.*, p.title as position_title, e.title as election_title 
                    FROM candidates c 
                    JOIN positions p ON c.position_id = p.id 
@@ -96,7 +112,7 @@ $candidates_result = mysqli_query($conn, $candidates_sql);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Manage Candidates - School Voting System</title>
+    <title>Candidates - School Voting System</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
     <style>
@@ -114,158 +130,42 @@ $candidates_result = mysqli_query($conn, $candidates_sql);
         .nav-link.active {
             color: white;
         }
-        .candidate-card {
-            margin-bottom: 20px;
-            border: none;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            transition: transform 0.2s;
-        }
-        .candidate-card:hover {
-            transform: translateY(-5px);
-        }
-        .candidate-image {
-            width: 100px;
-            height: 100px;
-            border-radius: 50%;
-            object-fit: cover;
-            border: 3px solid #fff;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .no-image {
-            width: 100px;
-            height: 100px;
-            border-radius: 50%;
-            background-color: #dee2e6;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #6c757d;
-            font-size: 40px;
-            border: 3px solid #fff;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .candidate-info {
-            padding: 20px;
-        }
-        .candidate-name {
-            font-size: 1.2rem;
-            font-weight: 500;
-            margin-bottom: 5px;
-        }
-        .candidate-description {
-            color: #6c757d;
-            font-size: 0.9rem;
-            margin-bottom: 15px;
-        }
-        .candidate-actions {
-            display: flex;
-            gap: 10px;
-        }
-        .btn-edit {
-            background-color: #198754;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 5px;
-            transition: background-color 0.3s;
-        }
-        .btn-edit:hover {
-            background-color: #157347;
-            color: white;
-        }
-        .btn-delete {
+        .modal-header-danger {
             background-color: #dc3545;
             color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 5px;
-            transition: background-color 0.3s;
         }
-        .btn-delete:hover {
-            background-color: #bb2d3b;
+        .modal-header-danger .btn-close {
             color: white;
-        }
-        .candidate-list-item {
-            display: flex;
-            align-items: center;
-            padding: 15px;
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            margin-bottom: 10px;
-            background-color: #fff;
-            transition: all 0.3s ease;
-        }
-        .candidate-list-item:hover {
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            transform: translateY(-2px);
         }
         .candidate-image {
             width: 60px;
             height: 60px;
-            border-radius: 50%;
             object-fit: cover;
+            border-radius: 50%;
             border: 2px solid #fff;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin-right: 20px;
         }
         .no-image {
             width: 60px;
             height: 60px;
             border-radius: 50%;
-            background-color: #dee2e6;
+            background-color: #e9ecef;
             display: flex;
             align-items: center;
             justify-content: center;
             color: #6c757d;
-            font-size: 24px;
-            border: 2px solid #fff;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin-right: 20px;
+            font-size: 1.5rem;
+            margin: 0 auto;
         }
-        .candidate-info {
-            flex-grow: 1;
+        .table > :not(caption) > * > * {
+            padding: 1rem;
+            vertical-align: middle;
         }
-        .candidate-name {
-            font-size: 1.1rem;
-            font-weight: 500;
-            margin-bottom: 5px;
+        .btn-group {
+            gap: 0.25rem;
         }
-        .candidate-position {
-            color: #198754;
-            font-weight: 500;
-            margin-bottom: 5px;
-        }
-        .candidate-description {
-            color: #6c757d;
-            font-size: 0.9rem;
-        }
-        .candidate-actions {
-            display: flex;
-            gap: 10px;
-        }
-        .btn-edit {
-            background-color: #198754;
-            color: white;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 4px;
-            transition: background-color 0.3s;
-        }
-        .btn-edit:hover {
-            background-color: #157347;
-            color: white;
-        }
-        .btn-delete {
-            background-color: #dc3545;
-            color: white;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 4px;
-            transition: background-color 0.3s;
-        }
-        .btn-delete:hover {
-            background-color: #bb2d3b;
-            color: white;
+        .table-hover tbody tr:hover {
+            background-color: rgba(0,0,0,.02);
         }
     </style>
 </head>
@@ -319,63 +219,69 @@ $candidates_result = mysqli_query($conn, $candidates_sql);
             <!-- Main content -->
             <div class="col-md-9 col-lg-10 ms-auto px-4 py-3">
                 <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h2>Manage Candidates</h2>
+                    <h2>Candidates</h2>
                     <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addCandidateModal">
-                        <i class="bi bi-plus-circle"></i> Add New Candidate
+                        <i class="bi bi-plus-lg"></i> Add Candidate
                     </button>
                 </div>
-
-                <?php if (isset($success)): ?>
-                    <div class="alert alert-success"><?php echo $success; ?></div>
-                <?php endif; ?>
 
                 <?php if (isset($error)): ?>
                     <div class="alert alert-danger"><?php echo $error; ?></div>
                 <?php endif; ?>
 
-                <!-- Candidates List -->
                 <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">Current Candidates</h5>
-                    </div>
                     <div class="card-body">
-                        <?php while ($candidate = mysqli_fetch_assoc($candidates_result)): ?>
-                            <div class="candidate-list-item">
-                                <?php if (!empty($candidate['image_path'])): ?>
-                                    <img src="../<?php echo htmlspecialchars($candidate['image_path']); ?>" 
-                                         alt="<?php echo htmlspecialchars($candidate['name']); ?>" 
-                                         class="candidate-image">
-                                <?php else: ?>
-                                    <div class="no-image">
-                                        <i class="bi bi-person"></i>
-                                    </div>
-                                <?php endif; ?>
-                                <div class="candidate-info">
-                                    <div class="candidate-name">
-                                        <?php echo htmlspecialchars($candidate['name']); ?>
-                                    </div>
-                                    <div class="candidate-position">
-                                        <?php echo htmlspecialchars($candidate['election_title'] . ' - ' . $candidate['position_title']); ?>
-                                    </div>
-                                    <?php if (!empty($candidate['description'])): ?>
-                                        <div class="candidate-description">
-                                            <?php echo htmlspecialchars($candidate['description']); ?>
-                                        </div>
-                                    <?php endif; ?>
-                                </div>
-                                <div class="candidate-actions">
-                                    <a href="edit_candidate.php?id=<?php echo $candidate['id']; ?>" 
-                                       class="btn btn-edit">
-                                        <i class="bi bi-pencil"></i> Edit
-                                    </a>
-                                    <a href="delete_candidate.php?id=<?php echo $candidate['id']; ?>" 
-                                       class="btn btn-delete"
-                                       onclick="return confirm('Are you sure you want to delete this candidate?')">
-                                        <i class="bi bi-trash"></i> Delete
-                                    </a>
-                                </div>
-                            </div>
-                        <?php endwhile; ?>
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 100px">Photo</th>
+                                        <th>Name</th>
+                                        <th>Position</th>
+                                        <th>Election</th>
+                                        <th>Description</th>
+                                        <th style="width: 150px">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php while ($candidate = mysqli_fetch_assoc($candidates_result)): ?>
+                                        <tr>
+                                            <td class="text-center">
+                                                <?php if ($candidate['image_path']): ?>
+                                                    <img src="../<?php echo htmlspecialchars($candidate['image_path']); ?>" 
+                                                         alt="<?php echo htmlspecialchars($candidate['name']); ?>"
+                                                         class="candidate-image">
+                                                <?php else: ?>
+                                                    <div class="no-image">
+                                                        <i class="bi bi-person"></i>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td><?php echo htmlspecialchars($candidate['name']); ?></td>
+                                            <td><?php echo htmlspecialchars($candidate['position_title']); ?></td>
+                                            <td><?php echo htmlspecialchars($candidate['election_title']); ?></td>
+                                            <td><?php echo htmlspecialchars($candidate['description']); ?></td>
+                                            <td>
+                                                <div class="btn-group">
+                                                    <button type="button" 
+                                                            class="btn btn-sm btn-primary" 
+                                                            data-bs-toggle="modal" 
+                                                            data-bs-target="#editCandidateModal<?php echo $candidate['id']; ?>">
+                                                        <i class="bi bi-pencil"></i>
+                                                    </button>
+                                                    <button type="button" 
+                                                            class="btn btn-sm btn-danger" 
+                                                            data-bs-toggle="modal" 
+                                                            data-bs-target="#deleteCandidateModal<?php echo $candidate['id']; ?>">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endwhile; ?>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -383,96 +289,156 @@ $candidates_result = mysqli_query($conn, $candidates_sql);
     </div>
 
     <!-- Add Candidate Modal -->
-    <div class="modal fade" id="addCandidateModal" tabindex="-1" aria-labelledby="addCandidateModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
+    <div class="modal fade" id="addCandidateModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="addCandidateModalLabel">Add New Candidate</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <h5 class="modal-title">Add New Candidate</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <form method="post" enctype="multipart/form-data">
                     <div class="modal-body">
-                        <input type="hidden" name="action" value="create">
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="name" class="form-label">Name</label>
-                                <input type="text" class="form-control" id="name" name="name" required>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="position_id" class="form-label">Position</label>
-                                <select class="form-select" id="position_id" name="position_id" required>
-                                    <option value="">Select Position</option>
-                                    <?php 
-                                    mysqli_data_seek($positions_result, 0);
-                                    while ($position = mysqli_fetch_assoc($positions_result)): 
-                                    ?>
-                                        <option value="<?php echo $position['id']; ?>">
-                                            <?php echo htmlspecialchars($position['election_title'] . ' - ' . $position['title']); ?>
-                                        </option>
-                                    <?php endwhile; ?>
-                                </select>
-                            </div>
-                        </div>
+                        <input type="hidden" name="action" value="add">
+                        
                         <div class="mb-3">
-                            <label for="description" class="form-label">Description</label>
-                            <textarea class="form-control" id="description" name="description" rows="3"></textarea>
+                            <label class="form-label">Position</label>
+                            <select class="form-select" name="position_id" required>
+                                <option value="">Select Position</option>
+                                <?php 
+                                mysqli_data_seek($positions_result, 0);
+                                while ($position = mysqli_fetch_assoc($positions_result)): 
+                                ?>
+                                    <option value="<?php echo $position['id']; ?>">
+                                        <?php echo htmlspecialchars($position['title'] . ' - ' . $position['election_title']); ?>
+                                    </option>
+                                <?php endwhile; ?>
+                            </select>
                         </div>
+                        
                         <div class="mb-3">
-                            <label for="image" class="form-label">Candidate Picture</label>
-                            <input type="file" class="form-control" id="image" name="image" accept="image/*" required>
-                            <img id="imagePreview" class="preview-image">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-control" name="name" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" name="description" rows="3"></textarea>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Photo</label>
+                            <input type="file" class="form-control" name="image" accept="image/*">
+                            <small class="text-muted">Optional. Recommended size: 200x200 pixels</small>
                         </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Add Candidate</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-plus-lg"></i> Add Candidate
+                        </button>
                     </div>
                 </form>
             </div>
         </div>
     </div>
 
+    <!-- Edit and Delete Modals -->
+    <?php 
+    mysqli_data_seek($candidates_result, 0);
+    while ($candidate = mysqli_fetch_assoc($candidates_result)): 
+    ?>
+    <!-- Edit Modal -->
+    <div class="modal fade" id="editCandidateModal<?php echo $candidate['id']; ?>" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Candidate</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form method="post" enctype="multipart/form-data">
+                    <div class="modal-body">
+                        <input type="hidden" name="action" value="edit">
+                        <input type="hidden" name="candidate_id" value="<?php echo $candidate['id']; ?>">
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Position</label>
+                            <select class="form-select" name="position_id" required>
+                                <?php 
+                                mysqli_data_seek($positions_result, 0);
+                                while ($position = mysqli_fetch_assoc($positions_result)): 
+                                ?>
+                                    <option value="<?php echo $position['id']; ?>" 
+                                            <?php echo $position['id'] == $candidate['position_id'] ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars($position['title'] . ' - ' . $position['election_title']); ?>
+                                    </option>
+                                <?php endwhile; ?>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-control" name="name" 
+                                   value="<?php echo htmlspecialchars($candidate['name']); ?>" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" name="description" rows="3"><?php 
+                                echo htmlspecialchars($candidate['description']); 
+                            ?></textarea>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Photo</label>
+                            <?php if ($candidate['image_path']): ?>
+                                <div class="mb-2">
+                                    <img src="../<?php echo htmlspecialchars($candidate['image_path']); ?>" 
+                                         alt="Current photo" class="candidate-image">
+                                </div>
+                            <?php endif; ?>
+                            <input type="file" class="form-control" name="image" accept="image/*">
+                            <small class="text-muted">Optional. Leave empty to keep current photo</small>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-save"></i> Save Changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Modal -->
+    <div class="modal fade" id="deleteCandidateModal<?php echo $candidate['id']; ?>" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header modal-header-danger">
+                    <h5 class="modal-title">Delete Candidate</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete the candidate:</p>
+                    <p class="fw-bold"><?php echo htmlspecialchars($candidate['name']); ?></p>
+                    <p class="text-danger">This action cannot be undone!</p>
+                </div>
+                <div class="modal-footer">
+                    <form method="post" style="display: inline;">
+                        <input type="hidden" name="action" value="delete">
+                        <input type="hidden" name="candidate_id" value="<?php echo $candidate['id']; ?>">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-trash"></i> Delete Candidate
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php endwhile; ?>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        // Handle select all checkbox
-        document.getElementById('selectAll').addEventListener('change', function() {
-            const checkboxes = document.getElementsByClassName('candidate-checkbox');
-            for (let checkbox of checkboxes) {
-                checkbox.checked = this.checked;
-            }
-            updateDeleteButton();
-        });
-
-        // Handle individual checkboxes
-        document.getElementsByClassName('candidate-checkbox').forEach(checkbox => {
-            checkbox.addEventListener('change', updateDeleteButton);
-        });
-
-        function updateDeleteButton() {
-            const checkedBoxes = document.querySelectorAll('.candidate-checkbox:checked');
-            document.getElementById('deleteBtn').style.display = checkedBoxes.length > 0 ? 'block' : 'none';
-        }
-
-        // Handle image preview
-        document.getElementById('image').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const preview = document.getElementById('imagePreview');
-                    preview.src = e.target.result;
-                    preview.style.display = 'block';
-                }
-                reader.readAsDataURL(file);
-            }
-        });
-
-        // Reset form when modal is closed
-        document.getElementById('addCandidateModal').addEventListener('hidden.bs.modal', function () {
-            document.getElementById('imagePreview').style.display = 'none';
-            document.getElementById('image').value = '';
-            document.querySelector('#addCandidateModal form').reset();
-        });
-    </script>
 </body>
 </html> 
