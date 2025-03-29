@@ -10,10 +10,10 @@ if (!isset($_SESSION['admin_id'])) {
 
 // Get statistics
 $stats = [
-    'elections' => mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as count FROM elections"))['count'],
-    'active_elections' => mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as count FROM elections WHERE status = 'active'"))['count'],
-    'total_votes' => mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as count FROM votes"))['count'],
-    'unused_codes' => mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as count FROM voting_codes WHERE is_used = 0"))['count']
+    'elections' => $conn->query("SELECT COUNT(*) as count FROM elections")->fetch(PDO::FETCH_ASSOC)['count'],
+    'active_elections' => $conn->query("SELECT COUNT(*) as count FROM elections WHERE status = 'active'")->fetch(PDO::FETCH_ASSOC)['count'],
+    'total_votes' => $conn->query("SELECT COUNT(*) as count FROM votes")->fetch(PDO::FETCH_ASSOC)['count'],
+    'unused_codes' => $conn->query("SELECT COUNT(*) as count FROM voting_codes WHERE is_used = 0")->fetch(PDO::FETCH_ASSOC)['count']
 ];
 ?>
 
@@ -30,9 +30,27 @@ $stats = [
             min-height: 100vh;
             background: #343a40;
             color: white;
+            transition: all 0.3s;
+            width: 16.666667%;
+            position: fixed;
+            left: 0;
+            top: 0;
+            z-index: 1000;
         }
         .nav-link {
             color: rgba(255,255,255,.75);
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1rem;
+        }
+        .nav-link i {
+            font-size: 1.2rem;
+            margin-right: 0.75rem;
+            min-width: 1.2rem;
+            text-align: center;
+        }
+        .nav-link span {
+            transition: opacity 0.3s;
         }
         .nav-link:hover {
             color: white;
@@ -44,62 +62,139 @@ $stats = [
             border-radius: 10px;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
+        .sidebar.collapsed {
+            width: 4rem;
+        }
+        .sidebar.collapsed .nav-link span {
+            opacity: 0;
+        }
+        .sidebar.collapsed .nav-link i {
+            margin-right: 0;
+        }
+        .sidebar.collapsed .full-title {
+            display: none;
+        }
+        .sidebar.collapsed .short-title {
+            display: block;
+        }
+        .full-title {
+            display: block;
+        }
+        .short-title {
+            display: none;
+        }
+        .main-content {
+            transition: all 0.3s;
+            margin-left: 16.666667%;
+            padding: 20px;
+            width: calc(100% - 16.666667%);
+        }
+        .main-content.expanded {
+            margin-left: 4rem;
+            width: calc(100% - 4rem);
+        }
+        .menu-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.5rem;
+        }
+        .menu-btn:hover {
+            color: rgba(255,255,255,.75);
+        }
+        .navbar {
+            position: fixed;
+            top: 0;
+            right: 0;
+            left: 16.666667%;
+            z-index: 999;
+            transition: all 0.3s;
+        }
+        .navbar.expanded {
+            left: 4rem;
+        }
+        body {
+            padding-top: 56px;
+        }
     </style>
 </head>
 <body>
+    <!-- Top Navbar -->
+    <nav class="navbar navbar-expand-lg bg-dark text-white">
+        <div class="container-fluid">
+            <div class="d-flex align-items-center">
+                <button class="menu-btn" id="sidebarToggle">
+                    <i class="bi bi-list"></i>
+                </button>
+            </div>
+            <div class="ms-auto">
+                <span>Welcome, <?php echo htmlspecialchars($_SESSION['admin_username']); ?></span>
+            </div>
+        </div>
+    </nav>
+
     <div class="container-fluid">
         <div class="row">
             <!-- Sidebar -->
-            <div class="col-md-3 col-lg-2 px-0 position-fixed sidebar">
+            <div class="sidebar" id="sidebar">
                 <div class="p-3">
-                    <h4>School Voting</h4>
+                    <h4 class="d-flex align-items-center">
+                        <span class="full-title">School Voting</span>
+                        <span class="short-title">SV</span>
+                    </h4>
                 </div>
                 <ul class="nav flex-column">
                     <li class="nav-item">
                         <a class="nav-link active" href="index.php">
-                            <i class="bi bi-speedometer2"></i> Dashboard
+                            <i class="bi bi-speedometer2"></i>
+                            <span>Dashboard</span>
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="elections.php">
-                            <i class="bi bi-calendar-check"></i> Elections
+                            <i class="bi bi-calendar-check"></i>
+                            <span>Elections</span>
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="positions.php">
-                            <i class="bi bi-person-badge"></i> Positions
+                            <i class="bi bi-person-badge"></i>
+                            <span>Positions</span>
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="candidates.php">
-                            <i class="bi bi-people"></i> Candidates
+                            <i class="bi bi-people"></i>
+                            <span>Candidates</span>
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="voting_codes.php">
-                            <i class="bi bi-key"></i> Voting Codes
+                            <i class="bi bi-key"></i>
+                            <span>Voting Codes</span>
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="results.php">
-                            <i class="bi bi-graph-up"></i> Results
+                            <i class="bi bi-graph-up"></i>
+                            <span>Results</span>
                         </a>
                     </li>
                     <li class="nav-item mt-3">
                         <a class="nav-link" href="logout.php">
-                            <i class="bi bi-box-arrow-right"></i> Logout
+                            <i class="bi bi-box-arrow-right"></i>
+                            <span>Logout</span>
                         </a>
                     </li>
                 </ul>
             </div>
 
             <!-- Main content -->
-            <div class="col-md-9 col-lg-10 ms-auto px-4 py-3">
+            <div class="main-content" id="mainContent">
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h2>Dashboard</h2>
-                    <div>
-                        Welcome, <?php echo htmlspecialchars($_SESSION['admin_username']); ?>
-                    </div>
                 </div>
 
                 <!-- Statistics Cards -->
@@ -158,8 +253,8 @@ $stats = [
                                 <tbody>
                                     <?php
                                     $sql = "SELECT * FROM elections ORDER BY created_at DESC LIMIT 5";
-                                    $result = mysqli_query($conn, $sql);
-                                    while ($row = mysqli_fetch_assoc($result)) {
+                                    $result = $conn->query($sql);
+                                    while ($row = $result->fetch(PDO::FETCH_ASSOC)) {
                                         echo "<tr>";
                                         echo "<td>" . htmlspecialchars($row['title']) . "</td>";
                                         echo "<td>" . date('M d, Y H:i', strtotime($row['start_date'])) . "</td>";
@@ -184,5 +279,12 @@ $stats = [
         </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('sidebarToggle').addEventListener('click', function() {
+            document.getElementById('sidebar').classList.toggle('collapsed');
+            document.getElementById('mainContent').classList.toggle('expanded');
+            document.querySelector('.navbar').classList.toggle('expanded');
+        });
+    </script>
 </body>
 </html> 
