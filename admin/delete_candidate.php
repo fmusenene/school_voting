@@ -14,15 +14,15 @@ if (!isset($_POST['candidate_id'])) {
 }
 
 try {
-    $pdo->beginTransaction();
+    $conn->beginTransaction();
 
     // Get candidate photo path
-    $stmt = $pdo->prepare("SELECT photo FROM candidates WHERE id = ?");
+    $stmt = $conn->prepare("SELECT photo FROM candidates WHERE id = ?");
     $stmt->execute([$_POST['candidate_id']]);
     $photo_path = $stmt->fetchColumn();
 
     // Delete candidate
-    $stmt = $pdo->prepare("DELETE FROM candidates WHERE id = ?");
+    $stmt = $conn->prepare("DELETE FROM candidates WHERE id = ?");
     $stmt->execute([$_POST['candidate_id']]);
 
     // Delete photo file if exists
@@ -30,10 +30,10 @@ try {
         unlink("../" . $photo_path);
     }
 
-    $pdo->commit();
+    $conn->commit();
     echo json_encode(['success' => true, 'message' => 'Candidate deleted successfully']);
 
 } catch (PDOException $e) {
-    $pdo->rollBack();
+    $conn->rollBack();
     echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
 } 

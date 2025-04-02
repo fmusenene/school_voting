@@ -28,46 +28,72 @@ $candidates_sql = "SELECT COUNT(*) as total FROM candidates";
 $candidates_total = $conn->query($candidates_sql)->fetch(PDO::FETCH_ASSOC)['total'];
 
 // Get total voting codes used
-$codes_sql = "SELECT COUNT(*) as total FROM voting_codes WHERE is_used = 1";
+$codes_sql = "SELECT COUNT(*) as total FROM voting_codes WHERE EXISTS (SELECT 1 FROM votes WHERE voting_code_id = voting_codes.id)";
 $codes_used = $conn->query($codes_sql)->fetch(PDO::FETCH_ASSOC)['total'];
 
 // Get total voting codes
 $total_codes_sql = "SELECT COUNT(*) as total FROM voting_codes";
 $total_codes = $conn->query($total_codes_sql)->fetch(PDO::FETCH_ASSOC)['total'];
 
+// Get total votes cast
+$votes_sql = "SELECT COUNT(*) as total FROM votes";
+$total_votes = $conn->query($votes_sql)->fetch(PDO::FETCH_ASSOC)['total'];
+
 // Get recent voting activity with more details
 $recent_votes_sql = "SELECT 
     v.id,
     v.created_at,
     v.candidate_id,
-    v.election_id,
     v.voting_code_id,
     c.name as candidate_name,
     c.photo as candidate_photo,
     p.title as position_title,
     e.title as election_title,
-    vc.code as voting_code
+    vc.code as voting_code,
+    e.id as election_id,
+    p.id as position_id
 FROM votes v
+LEFT JOIN voting_codes vc ON v.voting_code_id = vc.id
 LEFT JOIN candidates c ON v.candidate_id = c.id
 LEFT JOIN positions p ON c.position_id = p.id
 LEFT JOIN elections e ON p.election_id = e.id
-LEFT JOIN voting_codes vc ON v.voting_code_id = vc.id
 ORDER BY v.created_at DESC
 LIMIT 5";
 
 try {
+    // First, check if there are any votes at all
+    $check_votes_sql = "SELECT COUNT(*) as count FROM votes";
+    $votes_count = $conn->query($check_votes_sql)->fetch(PDO::FETCH_ASSOC);
+    echo "<!-- Debug: Total votes in database: " . $votes_count['count'] . " -->";
+
+    // If we have votes, let's check one directly
+    if ($votes_count['count'] > 0) {
+        $single_vote_sql = "SELECT * FROM votes LIMIT 1";
+        $single_vote = $conn->query($single_vote_sql)->fetch(PDO::FETCH_ASSOC);
+        echo "<!-- Debug: Sample vote - " . json_encode($single_vote) . " -->";
+    }
+
+    // Now try to get the recent votes with all details
     $stmt = $conn->prepare($recent_votes_sql);
     $stmt->execute();
     $recent_votes = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    // Debug information
-    echo "<!-- Debug: Number of recent votes found: " . count($recent_votes) . " -->";
+    echo "<!-- Debug: Number of recent votes fetched: " . count($recent_votes) . " -->";
     
-    if (count($recent_votes) === 0) {
-        // Check for any votes
-        $check_votes = "SELECT COUNT(*) as count FROM votes";
-        $votes_count = $conn->query($check_votes)->fetch(PDO::FETCH_ASSOC);
-        echo "<!-- Debug: Total votes in database: " . $votes_count['count'] . " -->";
+    if (empty($recent_votes)) {
+        // Let's check each table individually to see where the data might be missing
+        $tables_check = [
+            'votes' => "SELECT COUNT(*) as count FROM votes",
+            'voting_codes' => "SELECT COUNT(*) as count FROM voting_codes",
+            'candidates' => "SELECT COUNT(*) as count FROM candidates",
+            'positions' => "SELECT COUNT(*) as count FROM positions",
+            'elections' => "SELECT COUNT(*) as count FROM elections"
+        ];
+        
+        foreach ($tables_check as $table => $query) {
+            $count = $conn->query($query)->fetch(PDO::FETCH_ASSOC)['count'];
+            echo "<!-- Debug: {$table} table count: {$count} -->";
+        }
     }
 } catch (PDOException $e) {
     error_log("Error fetching recent votes: " . $e->getMessage());
@@ -266,68 +292,89 @@ try {
                 <div class="stats-icon" style="background: #fce4ec; color: #c2185b;">
                     <i class="bi bi-check2-square"></i>
                 </div>
-                <h3 class="stats-number"><?php echo $codes_used; ?></h3>
+                <h3 class="stats-number"><?php echo $total_votes; ?></h3>
                 <p class="stats-label">Votes Cast</p>
-                <div class="stats-detail">Out of <?php echo $total_codes; ?> voting codes</div>
+                <div class="stats-detail">Using <?php echo $codes_used; ?> out of <?php echo $total_codes; ?> voting codes</div>
             </div>
         </div>
     </div>
 
     <!-- Recent Voting Activity -->
-    <div class="activity-table table-responsive mt-4">
-        <div class="d-flex justify-content-between align-items-center p-3">
-            <h2 class="fs-4 mb-0">Recent Voting Activity</h2>
-            <span class="badge bg-primary"><?php echo count($recent_votes); ?> recent votes</span>
+    <div class="card border-0 shadow-sm mt-4">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Recent Voting Activity</h5>
+            <?php if (!empty($recent_votes)): ?>
+                <span class="badge bg-primary"><?php echo count($recent_votes); ?> recent votes</span>
+            <?php endif; ?>
         </div>
-        <?php if (count($recent_votes) > 0): ?>
-            <table class="table mb-0">
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Candidate</th>
-                        <th>Position</th>
-                        <th>Election</th>
-                        <th>Voting Code</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($recent_votes as $vote): ?>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
                         <tr>
-                            <td>
-                                <div class="text-primary"><?php echo date('h:i A', strtotime($vote['created_at'])); ?></div>
-                                <small class="text-muted"><?php echo date('M d, Y', strtotime($vote['created_at'])); ?></small>
-                            </td>
-                            <td>
-                                <div class="d-flex align-items-center">
-                                    <?php if (!empty($vote['candidate_photo'])): ?>
-                                        <img src="../<?php echo htmlspecialchars($vote['candidate_photo']); ?>" 
-                                             alt="<?php echo htmlspecialchars($vote['candidate_name']); ?>"
-                                             class="rounded-circle me-2"
-                                             style="width: 32px; height: 32px; object-fit: cover;">
-                                    <?php else: ?>
-                                        <div class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center me-2"
-                                             style="width: 32px; height: 32px;">
-                                            <i class="bi bi-person"></i>
-                                        </div>
-                                    <?php endif; ?>
-                                    <span><?php echo htmlspecialchars($vote['candidate_name'] ?? 'N/A'); ?></span>
-                                </div>
-                            </td>
-                            <td><?php echo htmlspecialchars($vote['position_title'] ?? 'N/A'); ?></td>
-                            <td><?php echo htmlspecialchars($vote['election_title'] ?? 'N/A'); ?></td>
-                            <td><span class="voting-code"><?php echo htmlspecialchars($vote['voting_code'] ?? 'N/A'); ?></span></td>
+                            <th>Time</th>
+                            <th>Election</th>
+                            <th>Position</th>
+                            <th>Candidate</th>
+                            <th>Voting Code</th>
                         </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        <?php else: ?>
-            <div class="text-center p-4">
-                <div class="text-muted">
-                    <i class="bi bi-inbox fs-2"></i>
-                    <p class="mt-2">No voting activity recorded yet</p>
-                </div>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($recent_votes)): ?>
+                            <tr>
+                                <td colspan="5" class="text-center py-4">
+                                    <div class="text-muted">
+                                        <i class="bi bi-inbox fs-2 d-block mb-2"></i>
+                                        <p class="mb-0">No voting activity recorded yet</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        <?php else: ?>
+                            <?php foreach ($recent_votes as $vote): ?>
+                                <tr>
+                                    <td>
+                                        <div class="text-primary"><?php echo date('h:i A', strtotime($vote['created_at'])); ?></div>
+                                        <small class="text-muted"><?php echo date('M d, Y', strtotime($vote['created_at'])); ?></small>
+                                    </td>
+                                    <td>
+                                        <a href="elections.php?id=<?php echo $vote['election_id']; ?>" class="text-decoration-none">
+                                            <span class="fw-medium text-dark"><?php echo htmlspecialchars($vote['election_title']); ?></span>
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <a href="positions.php?id=<?php echo $vote['position_id']; ?>" class="text-decoration-none">
+                                            <span class="text-dark"><?php echo htmlspecialchars($vote['position_title']); ?></span>
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <?php if ($vote['candidate_photo']): ?>
+                                                <img src="../<?php echo htmlspecialchars($vote['candidate_photo']); ?>" 
+                                                     class="rounded-circle me-2" 
+                                                     width="32" height="32" 
+                                                     alt="<?php echo htmlspecialchars($vote['candidate_name']); ?>"
+                                                     style="object-fit: cover;">
+                                            <?php else: ?>
+                                                <div class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center me-2"
+                                                     style="width: 32px; height: 32px;">
+                                                    <i class="bi bi-person"></i>
+                                                </div>
+                                            <?php endif; ?>
+                                            <a href="candidates.php?id=<?php echo $vote['candidate_id']; ?>" class="text-decoration-none">
+                                                <span class="fw-medium text-dark"><?php echo htmlspecialchars($vote['candidate_name']); ?></span>
+                                            </a>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <code class="voting-code bg-light px-2 py-1 rounded"><?php echo htmlspecialchars($vote['voting_code']); ?></code>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
             </div>
-        <?php endif; ?>
+        </div>
     </div>
 </div>
 

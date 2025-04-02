@@ -89,6 +89,9 @@ $election_stats = $election_stats_stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Handle form submission
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    // Set header for JSON response
+    header('Content-Type: application/json');
+    
     if (isset($_POST['delete_candidates'])) {
         if (isset($_POST['selected_candidates']) && is_array($_POST['selected_candidates'])) {
             $selected_candidates = array_map('intval', $_POST['selected_candidates']);
@@ -97,10 +100,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             // Delete the selected candidates
             $delete_sql = "DELETE FROM candidates WHERE id IN ($candidates_string)";
             if ($conn->exec($delete_sql)) {
-                $success = "Selected candidates deleted successfully!";
+                echo json_encode(['success' => true, 'message' => 'Selected candidates deleted successfully!']);
             } else {
-                $error = "Error deleting candidates";
+                echo json_encode(['success' => false, 'message' => 'Error deleting candidates']);
             }
+            exit;
         }
     } else if (isset($_POST['action']) && $_POST['action'] === 'create') {
         $name = $_POST['name'];
@@ -142,29 +146,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $new_candidate_stmt->execute([$candidate_id]);
             $new_candidate = $new_candidate_stmt->fetch(PDO::FETCH_ASSOC);
             
-            if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] === 'XMLHttpRequest') {
-                header('Content-Type: application/json');
-                echo json_encode([
-                    'success' => true,
-                    'message' => 'Candidate created successfully!',
-                    'candidate' => $new_candidate
-                ]);
-                exit;
-            } else {
-                $success = "Candidate created successfully!";
-            }
+            echo json_encode([
+                'success' => true,
+                'message' => 'Candidate created successfully!',
+                'candidate' => $new_candidate
+            ]);
         } else {
-            if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] === 'XMLHttpRequest') {
-                header('Content-Type: application/json');
-                echo json_encode([
-                    'success' => false,
-                    'message' => 'Error creating candidate'
-                ]);
-                exit;
-            } else {
-                $error = "Error creating candidate";
-            }
+            echo json_encode([
+                'success' => false,
+                'message' => 'Error creating candidate'
+            ]);
         }
+        exit;
     }
 }
 ?>
@@ -752,49 +745,8 @@ document.getElementById('addCandidateForm').addEventListener('submit', function(
     })
     .then(data => {
         if (data.success) {
-            // Create new row
-            const tbody = document.querySelector('table tbody');
-            const newRow = document.createElement('tr');
-            
-            // Create photo cell
-            const photoCell = document.createElement('td');
-            photoCell.innerHTML = data.candidate.photo ? 
-                `<img src="../${data.candidate.photo}" alt="${data.candidate.name}" class="rounded-circle" style="width: 40px; height: 40px; object-fit: cover;">` :
-                `<div class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;"><i class="bi bi-person"></i></div>`;
-            
-            // Create other cells
-            newRow.innerHTML = `
-                <td><input type="checkbox" name="selected_candidates[]" value="${data.candidate.id}" class="form-check-input candidate-checkbox"></td>
-                ${photoCell.outerHTML}
-                <td>${data.candidate.name}</td>
-                <td>${data.candidate.position_title}</td>
-                <td>${data.candidate.election_title}</td>
-                <td>
-                    <div class="d-flex gap-2">
-                        <a href="edit_candidate.php?id=${data.candidate.id}" class="btn btn-sm btn-primary">
-                            <i class="fas fa-edit"></i> Edit
-                        </a>
-                        <a href="candidates.php?position_id=${data.candidate.position_id}" class="btn btn-sm btn-info">
-                            <i class="fas fa-users"></i> View Position
-                        </a>
-                    </div>
-                </td>
-            `;
-            
-            // Add new row at the beginning of the table
-            tbody.insertBefore(newRow, tbody.firstChild);
-            
             // Show success message
-            const alertDiv = document.createElement('div');
-            alertDiv.className = 'alert alert-success alert-dismissible fade show';
-            alertDiv.innerHTML = `
-                ${data.message}
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            `;
-            document.querySelector('.container-fluid').insertBefore(alertDiv, document.querySelector('.card'));
-            
-            // Remove success message after 3 seconds
-            setTimeout(() => alertDiv.remove(), 3000);
+            showNotification(data.message, 'success');
             
             // Close modal and reset form
             const modal = document.getElementById('newCandidateModal');
@@ -812,23 +764,18 @@ document.getElementById('addCandidateForm').addEventListener('submit', function(
                 }
             }
             this.reset();
+            
+            // Refresh the page after a short delay
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
         } else {
             throw new Error(data.message || 'Error creating candidate');
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        // Show error message
-        const alertDiv = document.createElement('div');
-        alertDiv.className = 'alert alert-danger alert-dismissible fade show';
-        alertDiv.innerHTML = `
-            ${error.message || 'An error occurred while adding the candidate.'}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        `;
-        document.querySelector('.container-fluid').insertBefore(alertDiv, document.querySelector('.card'));
-        
-        // Remove error message after 3 seconds
-        setTimeout(() => alertDiv.remove(), 3000);
+        showNotification(error.message || 'An error occurred while adding the candidate.', 'error');
     })
     .finally(() => {
         // Reset button state
@@ -896,7 +843,6 @@ function deleteCandidate(candidateId) {
     document.getElementById('confirmationDialog').classList.add('show');
 }
 
-// Add these new functions
 function closeConfirmationDialog() {
     document.getElementById('confirmationDialog').classList.remove('show');
     candidateToDelete = null;
@@ -905,28 +851,44 @@ function closeConfirmationDialog() {
 function confirmDelete() {
     if (!candidateToDelete) return;
     
+    // Show loading state
+    const deleteButton = document.querySelector('#confirmationDialog .btn-danger');
+    const originalText = deleteButton.innerHTML;
+    deleteButton.disabled = true;
+    deleteButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Deleting...';
+    
     fetch('delete_candidate.php', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Requested-With': 'XMLHttpRequest'
         },
         body: `candidate_id=${candidateToDelete}`
     })
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
     .then(data => {
         if (data.success) {
-            showNotification('Candidate deleted successfully');
+            showNotification('Candidate deleted successfully', 'success');
             setTimeout(() => {
                 window.location.reload();
             }, 1000);
         } else {
-            showNotification(data.message || 'Error deleting candidate', 'error');
+            throw new Error(data.message || 'Error deleting candidate');
         }
     })
     .catch(error => {
-        showNotification('Error deleting candidate', 'error');
+        console.error('Error:', error);
+        showNotification(error.message || 'Error deleting candidate', 'error');
     })
     .finally(() => {
+        // Reset button state
+        deleteButton.disabled = false;
+        deleteButton.innerHTML = originalText;
         closeConfirmationDialog();
     });
 }
@@ -958,6 +920,9 @@ function showNotification(message, type) {
         }, 300);
     }, 3000);
 }
+
+// Initialize the modal
+const newCandidateModal = new bootstrap.Modal(document.getElementById('newCandidateModal'));
 </script>
 
 <!-- Add this HTML right after the notification container -->

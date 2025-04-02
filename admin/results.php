@@ -33,15 +33,29 @@ $positions = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get voting statistics
 $stats_sql = "SELECT 
-                COUNT(DISTINCT vc.id) as total_codes,
-                COUNT(DISTINCT CASE WHEN vc.is_used = 1 THEN vc.id END) as used_codes,
-                COUNT(DISTINCT v.id) as total_votes
-              FROM voting_codes vc
-              LEFT JOIN votes v ON vc.id = v.voting_code_id
-              WHERE vc.election_id = ?";
-$stats_stmt = $conn->prepare($stats_sql);
-$stats_stmt->execute([$selected_election_id]);
+    COUNT(DISTINCT vc.id) as total_codes,
+    COUNT(DISTINCT CASE WHEN vc.is_used = 1 THEN vc.id END) as used_codes,
+    COUNT(DISTINCT v.id) as total_votes
+FROM voting_codes vc
+LEFT JOIN votes v ON vc.id = v.voting_code_id
+WHERE 1=1";
+
+if ($selected_election_id) {
+    $stats_sql .= " AND vc.election_id = ?";
+    $stats_stmt = $conn->prepare($stats_sql);
+    $stats_stmt->execute([$selected_election_id]);
+} else {
+    $stats_stmt = $conn->prepare($stats_sql);
+    $stats_stmt->execute();
+}
 $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
+
+// Add percentage calculations
+$used_codes_percentage = $stats['total_codes'] > 0 ? 
+    round(($stats['used_codes'] / $stats['total_codes']) * 100, 1) : 0;
+
+$votes_per_code = $stats['used_codes'] > 0 ? 
+    round($stats['total_votes'] / $stats['used_codes'], 1) : 0;
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -69,7 +83,10 @@ $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
                         <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
                             Total Voting Codes</div>
                         <div class="h5 mb-0 font-weight-bold text-gray-800">
-                            <?php echo number_format($stats['total_codes'] ?? 0); ?>
+                            <?php echo number_format($stats['total_codes']); ?>
+                        </div>
+                        <div class="text-xs text-muted mt-1">
+                            <?php echo $used_codes_percentage; ?>% used
                         </div>
                     </div>
                     <div class="col-auto">
@@ -89,7 +106,10 @@ $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
                         <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
                             Used Codes</div>
                         <div class="h5 mb-0 font-weight-bold text-gray-800">
-                            <?php echo number_format($stats['used_codes'] ?? 0); ?>
+                            <?php echo number_format($stats['used_codes']); ?>
+                        </div>
+                        <div class="text-xs text-muted mt-1">
+                            <?php echo $votes_per_code; ?> votes per code avg.
                         </div>
                     </div>
                     <div class="col-auto">
@@ -109,7 +129,10 @@ $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
                         <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
                             Total Votes Cast</div>
                         <div class="h5 mb-0 font-weight-bold text-gray-800">
-                            <?php echo number_format($stats['total_votes'] ?? 0); ?>
+                            <?php echo number_format($stats['total_votes']); ?>
+                        </div>
+                        <div class="text-xs text-muted mt-1">
+                            across <?php echo count($positions); ?> position(s)
                         </div>
                     </div>
                     <div class="col-auto">
@@ -173,8 +196,16 @@ $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
 
                         <?php if (count($candidates) > 0): ?>
                             <ul class="candidates-list">
-                                <?php foreach ($candidates as $candidate): ?>
-                                    <li class="candidate-item">
+                                <?php 
+                                // Get winner(s)
+                                $winners = array_filter($candidates, function($c) use ($max_votes) {
+                                    return $c['vote_count'] == $max_votes;
+                                });
+                                ?>
+                                <?php foreach ($candidates as $candidate): 
+                                    $is_winner = $candidate['vote_count'] == $max_votes;
+                                ?>
+                                    <li class="candidate-item <?php echo $is_winner ? 'winner' : ''; ?>">
                                         <?php if (!empty($candidate['photo'])): ?>
                                             <img src="../<?php echo htmlspecialchars($candidate['photo']); ?>" 
                                                  alt="<?php echo htmlspecialchars($candidate['name']); ?>"
@@ -187,7 +218,7 @@ $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
                                         <div class="candidate-info">
                                             <h3 class="candidate-name">
                                                 <?php echo htmlspecialchars($candidate['name']); ?>
-                                                <?php if ($total_votes > 0 && $candidate['vote_count'] == $max_votes): ?>
+                                                <?php if ($is_winner): ?>
                                                     <span class="winner-badge">Winner</span>
                                                 <?php endif; ?>
                                             </h3>
@@ -201,6 +232,17 @@ $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
                                     </li>
                                 <?php endforeach; ?>
                             </ul>
+
+                            <?php if ($total_votes > 0): ?>
+                                <?php foreach ($winners as $winner): ?>
+                                    <div class="winner-announcement">
+                                        <i class="bi bi-trophy-fill me-2"></i>
+                                        Winner: <?php echo htmlspecialchars($winner['name']); ?> 
+                                        with <?php echo $winner['vote_count']; ?> votes 
+                                        (<?php echo round(($winner['vote_count'] / $total_votes) * 100, 1); ?>% of total votes)
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         <?php else: ?>
                             <div class="no-candidates">
                                 <i class="bi bi-people"></i>
@@ -388,6 +430,11 @@ $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
     background-color: #f8f9fa;
 }
 
+.candidate-item.winner {
+    background-color: #e3fcef;
+    border-left: 4px solid #00a854;
+}
+
 .candidate-photo {
     width: 48px;
     height: 48px;
@@ -446,6 +493,28 @@ $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
 .no-candidates i {
     font-size: 2rem;
     margin-bottom: 0.5rem;
+}
+
+.winner-announcement {
+    text-align: center;
+    padding: 1.5rem;
+    margin-top: 1rem;
+    background: #e3fcef;
+    border-radius: 8px;
+    color: #00a854;
+    font-weight: 500;
+    animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 </style>
 

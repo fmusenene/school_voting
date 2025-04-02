@@ -9,7 +9,7 @@ if (!isset($_GET['id'])) {
 }
 
 try {
-    $stmt = $pdo->prepare("SELECT * FROM candidates WHERE id = ?");
+    $stmt = $conn->prepare("SELECT * FROM candidates WHERE id = ?");
     $stmt->execute([$_GET['id']]);
     $candidate = $stmt->fetch(PDO::FETCH_ASSOC);
 
