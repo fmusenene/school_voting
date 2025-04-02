@@ -50,6 +50,13 @@ if (!isset($_SESSION['admin_id'])) {
             color: white;
             background-color: #0d6efd;
         }
+        .nav-link.logout {
+            color: #dc3545;
+        }
+        .nav-link.logout:hover {
+            color: white;
+            background-color: #dc3545;
+        }
         .stat-card {
             border-radius: 10px;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
@@ -181,7 +188,7 @@ if (!isset($_SESSION['admin_id'])) {
                         </a>
                     </li>
                     <li class="nav-item mt-3">
-                        <a class="nav-link" href="/school_voting/admin/logout.php">
+                        <a class="nav-link logout" href="/school_voting/admin/logout.php">
                             <i class="bi bi-box-arrow-right"></i>
                             <span>Logout</span>
                         </a>

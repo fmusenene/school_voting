@@ -77,19 +77,27 @@ $stats_sql = "SELECT
                 COUNT(DISTINCT CASE WHEN vc.is_used = 1 THEN vc.id END) as used_codes,
                 COUNT(DISTINCT CASE WHEN vc.is_used = 0 THEN vc.id END) as unused_codes
               FROM voting_codes vc
-              WHERE vc.election_id = ?";
+              " . ($selected_election_id ? "WHERE vc.election_id = ?" : "");
 $stats_stmt = $conn->prepare($stats_sql);
-$stats_stmt->execute([$selected_election_id]);
+if ($selected_election_id) {
+    $stats_stmt->execute([$selected_election_id]);
+} else {
+    $stats_stmt->execute();
+}
 $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
 
 // Get all voting codes with election titles
 $codes_sql = "SELECT vc.*, e.title as election_title 
               FROM voting_codes vc 
               LEFT JOIN elections e ON vc.election_id = e.id 
-              WHERE vc.election_id = ?
+              " . ($selected_election_id ? "WHERE vc.election_id = ?" : "") . "
               ORDER BY vc.id DESC";
 $codes_stmt = $conn->prepare($codes_sql);
-$codes_stmt->execute([$selected_election_id]);
+if ($selected_election_id) {
+    $codes_stmt->execute([$selected_election_id]);
+} else {
+    $codes_stmt->execute();
+}
 $codes_result = $codes_stmt;
 ?>
 
@@ -101,7 +109,8 @@ $codes_result = $codes_stmt;
             <p class="text-muted mb-0">Generate and manage voting codes for elections</p>
         </div>
         <div class="d-flex gap-2">
-            <select class="form-select" id="electionSelect" onchange="window.location.href='voting_codes.php?election_id=' + this.value">
+            <select class="form-select" id="electionSelect" onchange="window.location.href='voting_codes.php' + (this.value ? '?election_id=' + this.value : '')">
+                <option value="">All Elections</option>
                 <?php 
                 $elections_result->execute();
                 while ($election = $elections_result->fetch(PDO::FETCH_ASSOC)): 
@@ -111,62 +120,11 @@ $codes_result = $codes_stmt;
                     </option>
                 <?php endwhile; ?>
             </select>
-            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addCodesModal">
-                <i class="bi bi-plus-lg"></i> Generate New Codes
+            <button type="button" class="btn btn-primary btn-sm px-3" data-bs-toggle="modal" data-bs-target="#generateCodesModal">
+                <i class="bi bi-plus-circle"></i> Generate New Codes
             </button>
         </div>
     </div>
-
-    <?php if ($selected_election_id): ?>
-        <!-- Statistics Cards -->
-        <div class="row mb-4">
-            <div class="col-md-4">
-                <div class="card stat-card border-0 shadow-sm">
-                    <div class="card-body">
-                        <div class="d-flex align-items-center">
-                            <div class="stat-icon bg-primary bg-opacity-10 rounded-circle p-3 me-3">
-                                <i class="bi bi-key-fill text-primary fs-4"></i>
-                            </div>
-                            <div>
-                                <h6 class="card-title text-muted mb-1">Total Voting Codes</h6>
-                                <p class="card-text display-6 mb-0"><?php echo $stats['total_codes']; ?></p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card stat-card border-0 shadow-sm">
-                    <div class="card-body">
-                        <div class="d-flex align-items-center">
-                            <div class="stat-icon bg-success bg-opacity-10 rounded-circle p-3 me-3">
-                                <i class="bi bi-check-circle-fill text-success fs-4"></i>
-                            </div>
-                            <div>
-                                <h6 class="card-title text-muted mb-1">Used Codes</h6>
-                                <p class="card-text display-6 mb-0"><?php echo $stats['used_codes']; ?></p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card stat-card border-0 shadow-sm">
-                    <div class="card-body">
-                        <div class="d-flex align-items-center">
-                            <div class="stat-icon bg-warning bg-opacity-10 rounded-circle p-3 me-3">
-                                <i class="bi bi-hourglass-split text-warning fs-4"></i>
-                            </div>
-                            <div>
-                                <h6 class="card-title text-muted mb-1">Unused Codes</h6>
-                                <p class="card-text display-6 mb-0"><?php echo $stats['unused_codes']; ?></p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    <?php endif; ?>
 
     <?php if (isset($success)): ?>
         <div class="alert alert-success alert-dismissible fade show" role="alert">
@@ -181,6 +139,55 @@ $codes_result = $codes_stmt;
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
     <?php endif; ?>
+
+    <!-- Statistics Cards -->
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card stat-card border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="stat-icon bg-primary bg-opacity-10 rounded-circle p-3 me-3">
+                            <i class="bi bi-key-fill text-primary fs-4"></i>
+                        </div>
+                        <div>
+                            <h6 class="card-title text-muted mb-1">Total Voting Codes</h6>
+                            <p class="card-text display-6 mb-0"><?php echo $stats['total_codes']; ?></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card stat-card border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="stat-icon bg-success bg-opacity-10 rounded-circle p-3 me-3">
+                            <i class="bi bi-check-circle-fill text-success fs-4"></i>
+                        </div>
+                        <div>
+                            <h6 class="card-title text-muted mb-1">Used Codes</h6>
+                            <p class="card-text display-6 mb-0"><?php echo $stats['used_codes']; ?></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card stat-card border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="stat-icon bg-warning bg-opacity-10 rounded-circle p-3 me-3">
+                            <i class="bi bi-hourglass-split text-warning fs-4"></i>
+                        </div>
+                        <div>
+                            <h6 class="card-title text-muted mb-1">Unused Codes</h6>
+                            <p class="card-text display-6 mb-0"><?php echo $stats['unused_codes']; ?></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Voting Codes Table -->
     <div class="card border-0 shadow-sm">

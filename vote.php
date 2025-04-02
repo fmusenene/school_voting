@@ -6,9 +6,9 @@ require_once "config/database.php";
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// Check if student is logged in
-if (!isset($_SESSION['voting_code_id'])) {
-    header("location: index.php");
+// Check if user is logged in
+if (!isset($_SESSION['voting_code'])) {
+    header("Location: index.php");
     exit();
 }
 
@@ -16,109 +16,104 @@ $error = '';
 $success = '';
 
 // Get election details
-$election_sql = "SELECT * FROM elections WHERE id = ?";
-$election_stmt = mysqli_prepare($conn, $election_sql);
-mysqli_stmt_bind_param($election_stmt, "i", $_SESSION['election_id']);
-mysqli_stmt_execute($election_stmt);
-$election = mysqli_fetch_assoc(mysqli_stmt_get_result($election_stmt));
+$election_id = $_SESSION['election_id'];
+$stmt = $conn->prepare("SELECT * FROM elections WHERE id = ? AND status = 'active'");
+$stmt->execute([$election_id]);
+$election = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$election) {
-    header("location: index.php");
+    // If election is not active, clear session and redirect
+    session_destroy();
+    header("Location: index.php?error=expired");
     exit();
 }
 
-// Check if election is still active
-$current_datetime = new DateTime();
-$start_datetime = new DateTime($election['start_date']);
-$end_datetime = new DateTime($election['end_date']);
+// Check if user has already voted
+$stmt = $conn->prepare("SELECT is_used FROM voting_codes WHERE code = ?");
+$stmt->execute([$_SESSION['voting_code']]);
+$code_status = $stmt->fetch(PDO::FETCH_ASSOC);
 
-// Check if election is still valid
-if ($election['status'] !== 'active') {
-    $error = "This election is not currently active.";
-} else if ($current_datetime < $start_datetime) {
-    $error = "This election has not started yet.";
-} else if ($current_datetime > $end_datetime) {
-    // Update election status to completed if end date has passed
-    $update_sql = "UPDATE elections SET status = 'completed' WHERE id = " . $election['id'];
-    mysqli_query($conn, $update_sql);
-    $error = "This election has ended.";
-}
-
-// If there's an error, redirect to index with appropriate message
-if ($error) {
+if ($code_status['is_used']) {
+    // If code is already used, clear session and redirect
     session_destroy();
-    header("location: index.php?error=expired");
+    header("Location: index.php?error=already_voted");
     exit();
 }
 
 // Get positions and candidates
-$positions_sql = "SELECT * FROM positions WHERE election_id = ? ORDER BY title";
-$positions_stmt = mysqli_prepare($conn, $positions_sql);
-mysqli_stmt_bind_param($positions_stmt, "i", $_SESSION['election_id']);
-mysqli_stmt_execute($positions_stmt);
-$positions_result = mysqli_stmt_get_result($positions_stmt);
-
+$stmt = $conn->prepare("
+    SELECT p.*, c.id as candidate_id, c.name as candidate_name, c.photo as candidate_photo
+    FROM positions p
+    LEFT JOIN candidates c ON p.id = c.position_id
+    WHERE p.election_id = ?
+    ORDER BY p.id, c.name
+");
+$stmt->execute([$election_id]);
 $positions = [];
-while ($position = mysqli_fetch_assoc($positions_result)) {
-    // Get candidates for this position
-    $candidates_sql = "SELECT * FROM candidates WHERE position_id = ? ORDER BY name";
-    $candidates_stmt = mysqli_prepare($conn, $candidates_sql);
-    mysqli_stmt_bind_param($candidates_stmt, "i", $position['id']);
-    mysqli_stmt_execute($candidates_stmt);
-    $position['candidates'] = mysqli_fetch_all(mysqli_stmt_get_result($candidates_stmt), MYSQLI_ASSOC);
-    $positions[] = $position;
+while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+    if (!isset($positions[$row['id']])) {
+        $positions[$row['id']] = [
+            'id' => $row['id'],
+            'title' => strtolower($row['title']),
+            'candidates' => []
+        ];
+    }
+    if ($row['candidate_id']) {
+        $positions[$row['id']]['candidates'][] = [
+            'id' => $row['candidate_id'],
+            'name' => $row['candidate_name'],
+            'photo' => $row['candidate_photo']
+        ];
+    }
 }
 
 if (empty($positions)) {
     $error = "No positions available for voting.";
 }
 
-// Handle vote submission
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $success = true;
-    $error = null;
-
-    // Start transaction
-    mysqli_begin_transaction($conn);
-
+// Handle form submission
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     try {
-        // First, mark the voting code as used
-        $update_code_sql = "UPDATE voting_codes SET is_used = 1, used_at = NOW() WHERE id = ?";
-        $update_code_stmt = mysqli_prepare($conn, $update_code_sql);
-        mysqli_stmt_bind_param($update_code_stmt, "i", $_SESSION['voting_code_id']);
-        
-        if (!mysqli_stmt_execute($update_code_stmt)) {
-            throw new Exception("Error marking voting code as used: " . mysqli_error($conn));
-        }
+        $conn->beginTransaction();
 
-        // Insert votes for each position
+        // Mark voting code as used
+        $stmt = $conn->prepare("UPDATE voting_codes SET is_used = 1 WHERE code = ?");
+        $stmt->execute([$_SESSION['voting_code']]);
+
+        // Record votes
+        $stmt = $conn->prepare("INSERT INTO votes (candidate_id, voting_code_id) VALUES (?, ?)");
+        
         foreach ($_POST['votes'] as $position_id => $candidate_id) {
-            $sql = "INSERT INTO votes (voting_code_id, election_id, position_id, candidate_id) VALUES (?, ?, ?, ?)";
-            $stmt = mysqli_prepare($conn, $sql);
-            mysqli_stmt_bind_param($stmt, "iiii", $_SESSION['voting_code_id'], $_SESSION['election_id'], $position_id, $candidate_id);
-            
-            if (!mysqli_stmt_execute($stmt)) {
-                throw new Exception("Error recording vote: " . mysqli_error($conn));
+            if (!empty($candidate_id)) {
+                $stmt->execute([$candidate_id, $_SESSION['voting_code_id']]);
             }
         }
 
-        // Commit transaction
-        mysqli_commit($conn);
+        $conn->commit();
         
         // Clear session
         session_destroy();
         
-        // Return JSON response
-        header('Content-Type: application/json');
-        echo json_encode(['success' => true]);
-        exit();
+        // Return success response for AJAX
+        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && 
+            strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => true]);
+            exit();
+        }
         
-    } catch (Exception $e) {
-        // Rollback transaction on error
-        mysqli_rollback($conn);
-        header('Content-Type: application/json');
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        // Fallback for non-AJAX
+        header("Location: index.php");
         exit();
+    } catch (Exception $e) {
+        $conn->rollBack();
+        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && 
+            strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+            exit();
+        }
+        $error = "An error occurred while processing your vote. Please try again.";
     }
 }
 ?>
@@ -129,69 +124,98 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vote - <?php echo htmlspecialchars($election['title']); ?></title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
     <style>
         body {
+            font-family: Arial, sans-serif;
             background-color: #f8f9fa;
-        }
-        .voting-container {
-            max-width: 800px;
-            margin: 50px auto;
+            margin: 0;
             padding: 20px;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
-        .school-logo {
+        .main-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .election-title {
             text-align: center;
             margin-bottom: 30px;
+            padding: 20px;
         }
-        .school-logo i {
-            font-size: 48px;
-            color: #343a40;
-        }
-        .position-card {
+        .logo-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 40px;
             margin-bottom: 20px;
         }
-        .candidate-option {
-            padding: 15px;
-            border: 2px solid #dee2e6;
+        .logo {
+            width: 120px;
+            height: 120px;
+            object-fit: contain;
+        }
+        .divider {
+            width: 2px;
+            height: 120px;
+            background: #ddd;
+        }
+        .election-title h2 {
+            color: #333;
+            font-size: 24px;
+            margin: 20px 0 10px;
+        }
+        .election-title p {
+            color: #666;
+            margin-top: 5px;
+        }
+        .position-section {
+            margin-bottom: 30px;
+            background: white;
             border-radius: 10px;
-            margin-bottom: 15px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-        }
-        .candidate-option:hover {
-            border-color: #198754;
-            background-color: #f8f9fa;
-        }
-        .candidate-option.selected {
-            border-color: #198754;
-            background-color: #e8f5e9;
-        }
-        .candidate-image {
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
-            margin-right: 20px;
-            object-fit: cover;
-            border: 2px solid #fff;
+            padding: 20px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .no-image {
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
-            margin-right: 20px;
-            background-color: #dee2e6;
+        .position-title {
+            font-size: 16px;
+            color: #333;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        .candidates-list {
+            padding: 10px;
+        }
+        .candidate-card {
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            background: white;
+            margin-bottom: 15px;
+            width: 100%;
+        }
+        .candidate-card:hover {
+            border-color: #28a745;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .candidate-card.selected {
+            border-color: #28a745;
+            background-color: #f8fff8;
+        }
+        .candidate-option {
             display: flex;
             align-items: center;
-            justify-content: center;
-            color: #6c757d;
-            font-size: 32px;
+            padding: 15px;
+            width: 100%;
+        }
+        .candidate-photo {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            object-fit: cover;
+            margin-right: 15px;
             border: 2px solid #fff;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
@@ -199,187 +223,186 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             flex-grow: 1;
         }
         .candidate-name {
-            font-size: 1.2rem;
-            font-weight: 500;
+            font-size: 16px;
+            color: #333;
             margin-bottom: 5px;
         }
-        .candidate-description {
-            color: #6c757d;
-            font-size: 0.9rem;
+        .candidate-details {
+            font-size: 14px;
+            color: #666;
         }
-        .modal-content {
+        .submit-button {
+            background: #0d6efd;
+            color: white;
             border: none;
-            border-radius: 15px;
+            padding: 12px 30px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            display: block;
+            margin: 30px auto;
+            transition: background-color 0.3s;
         }
-        .modal-body {
-            padding: 2rem;
+        .submit-button:hover {
+            background: #0b5ed7;
         }
-        .bi-check-circle-fill {
-            animation: scaleIn 0.5s ease-out;
+        input[type="radio"] {
+            margin-right: 10px;
         }
-        @keyframes scaleIn {
-            0% {
-                transform: scale(0);
-                opacity: 0;
-            }
-            100% {
-                transform: scale(1);
-                opacity: 1;
-            }
+        /* Success Modal Styles */
+        .success-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .success-content {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .success-icon {
+            color: #28a745;
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        .success-title {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 15px;
+        }
+        .success-message {
+            color: #666;
+            margin-bottom: 0;
+            line-height: 1.5;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="voting-container">
-            <div class="school-logo">
-                <i class="bi bi-building"></i>
+    <!-- Add Success Modal -->
+    <div class="success-modal" id="successModal">
+        <div class="success-content">
+            <div class="success-icon">✓</div>
+            <h2 class="success-title">Thank You for Voting!</h2>
+            <p class="success-message">Your vote has been successfully recorded. Thank you for participating in this election.</p>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="election-title">
+            <div class="logo-container">
+                <img src="assets/images/electoral-commission-logo.png" alt="Electoral Commission" class="logo">
+                <div class="divider"></div>
+                <img src="assets/images/gombe-ss-logo.png" alt="Gombe S.S." class="logo">
             </div>
-            <h2 class="text-center mb-4"><?php echo htmlspecialchars($election['title']); ?></h2>
-            <p class="text-center mb-4"><?php echo htmlspecialchars($election['description']); ?></p>
-            
-            <?php if ($error): ?>
-                <div class="alert alert-danger"><?php echo $error; ?></div>
-            <?php endif; ?>
-            
-            <?php if ($success): ?>
-                <div class="alert alert-success">
-                    <?php echo $success; ?>
-                    <div class="mt-3">
-                        <a href="index.php" class="btn btn-primary">Return to Home</a>
-                    </div>
-                </div>
-            <?php else: ?>
-                <?php if (!empty($positions)): ?>
-                    <form method="post" action="" id="votingForm">
-                        <?php foreach ($positions as $position): ?>
-                            <div class="card position-card">
-                                <div class="card-header">
-                                    <h5 class="card-title mb-0"><?php echo htmlspecialchars($position['title']); ?></h5>
-                                </div>
-                                <div class="card-body">
-                                    <?php foreach ($position['candidates'] as $candidate): ?>
-                                        <div class="candidate-option" data-candidate-id="<?php echo $candidate['id']; ?>">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="radio" 
-                                                       name="votes[<?php echo $position['id']; ?>]" 
-                                                       value="<?php echo $candidate['id']; ?>" 
-                                                       id="candidate<?php echo $candidate['id']; ?>" required>
-                                            </div>
-                                            <?php if (!empty($candidate['image_path'])): ?>
-                                                <img src="<?php echo htmlspecialchars($candidate['image_path']); ?>" 
-                                                     alt="<?php echo htmlspecialchars($candidate['name']); ?>" 
-                                                     class="candidate-image">
-                                            <?php else: ?>
-                                                <div class="no-image">
-                                                    <i class="bi bi-person"></i>
-                                                </div>
-                                            <?php endif; ?>
-                                            <div class="candidate-info">
-                                                <div class="candidate-name">
-                                                    <?php echo htmlspecialchars($candidate['name']); ?>
-                                                </div>
-                                                <?php if (!empty($candidate['description'])): ?>
-                                                    <div class="candidate-description">
-                                                        <?php echo htmlspecialchars($candidate['description']); ?>
-                                                    </div>
-                                                <?php endif; ?>
-                                            </div>
-                                        </div>
-                                    <?php endforeach; ?>
-                                </div>
+            <h2><?php echo htmlspecialchars($election['title']); ?></h2>
+            <p>Select your preferred candidates</p>
+        </div>
+
+        <form method="post" id="votingForm">
+            <?php foreach ($positions as $position): ?>
+                <div class="position-section">
+                    <h3 class="position-title"><?php echo htmlspecialchars($position['title']); ?></h3>
+                    <div class="candidates-list">
+                        <?php foreach ($position['candidates'] as $candidate): ?>
+                            <div class="candidate-card" onclick="selectCandidate(this)">
+                                <label class="candidate-option">
+                                    <input type="radio" name="votes[<?php echo $position['id']; ?>]" 
+                                           value="<?php echo $candidate['id']; ?>" required>
+                                    <?php if ($candidate['photo']): ?>
+                                        <img src="<?php echo htmlspecialchars($candidate['photo']); ?>" 
+                                             alt="" class="candidate-photo">
+                                    <?php else: ?>
+                                        <img src="assets/images/default-avatar.png" 
+                                             alt="" class="candidate-photo">
+                                    <?php endif; ?>
+                                    <div class="candidate-info">
+                                        <div class="candidate-name"><?php echo htmlspecialchars($candidate['name']); ?></div>
+                                        <div class="candidate-details"><?php echo substr(md5($candidate['id']), 0, 8); ?></div>
+                                    </div>
+                                </label>
                             </div>
                         <?php endforeach; ?>
-                        
-                        <div class="text-center">
-                            <button type="submit" class="btn btn-primary btn-lg">Submit Vote</button>
-                        </div>
-                    </form>
-                <?php else: ?>
-                    <div class="alert alert-warning">
-                        No positions are available for voting at this time.
                     </div>
-                <?php endif; ?>
-            <?php endif; ?>
-        </div>
+                </div>
+            <?php endforeach; ?>
+
+            <button type="submit" class="submit-button">Submit Vote</button>
+        </form>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Handle form submission
-        document.getElementById('votingForm').addEventListener('submit', function(e) {
+        function selectCandidate(card) {
+            // Remove selected class from all cards in this position section
+            const positionSection = card.closest('.position-section');
+            positionSection.querySelectorAll('.candidate-card').forEach(c => {
+                c.classList.remove('selected');
+            });
+            
+            // Add selected class to clicked card
+            card.classList.add('selected');
+            
+            // Check the radio button
+            const radio = card.querySelector('input[type="radio"]');
+            radio.checked = true;
+        }
+
+        // Handle form submission with success message
+        document.getElementById('votingForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
-            // Show loading state
-            const submitBtn = this.querySelector('button[type="submit"]');
-            const originalText = submitBtn.innerHTML;
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Submitting...';
+            // Validate form
+            const positions = document.querySelectorAll('.position-section');
+            let isValid = true;
             
-            // Submit the form
-            fetch(this.action, {
-                method: 'POST',
-                body: new FormData(this)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
+            positions.forEach(position => {
+                const selected = position.querySelector('input[type="radio"]:checked');
+                if (!selected) {
+                    isValid = false;
+                    position.style.border = '1px solid red';
+                } else {
+                    position.style.border = 'none';
+                }
+            });
+            
+            if (!isValid) {
+                alert('Please select a candidate for each position.');
+                return;
+            }
+
+            try {
+                // Submit the form data
+                const formData = new FormData(this);
+                const response = await fetch('vote.php', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
                     // Show success modal
-                    const successModal = new bootstrap.Modal(document.getElementById('successModal'));
-                    successModal.show();
-                    
-                    // Redirect after 2 seconds
+                    const modal = document.getElementById('successModal');
+                    modal.style.display = 'flex';
+
+                    // Wait 3 seconds and redirect
                     setTimeout(() => {
                         window.location.href = 'index.php';
-                    }, 2000);
-                } else {
-                    alert(data.message || 'Error submitting vote. Please try again.');
-                    submitBtn.disabled = false;
-                    submitBtn.innerHTML = originalText;
+                    }, 3000);
                 }
-            })
-            .catch(error => {
+            } catch (error) {
                 console.error('Error:', error);
-                alert('Error submitting vote. Please try again.');
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = originalText;
-            });
-        });
-
-        // Add visual feedback for selected candidates
-        document.querySelectorAll('.candidate-option').forEach(option => {
-            option.addEventListener('click', function() {
-                const radio = this.querySelector('input[type="radio"]');
-                if (radio) {
-                    radio.checked = true;
-                    this.classList.add('selected');
-                    
-                    // Remove selected class from other options in the same position
-                    const positionCard = this.closest('.position-card');
-                    positionCard.querySelectorAll('.candidate-option').forEach(otherOption => {
-                        if (otherOption !== this) {
-                            otherOption.classList.remove('selected');
-                        }
-                    });
-                }
-            });
+                alert('An error occurred while submitting your vote. Please try again.');
+            }
         });
     </script>
-
-    <!-- Success Modal -->
-    <div class="modal fade" id="successModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-body text-center p-5">
-                    <div class="mb-4">
-                        <i class="bi bi-check-circle-fill text-success" style="font-size: 4rem;"></i>
-                    </div>
-                    <h4 class="mb-3">Vote Submitted Successfully!</h4>
-                    <p class="text-muted">Thank you for participating in the election.</p>
-                    <p class="text-muted">Redirecting to home page...</p>
-                </div>
-            </div>
-        </div>
-    </div>
 </body>
 </html> 

@@ -322,12 +322,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                                     <td><?php echo htmlspecialchars($candidate['election_title']); ?></td>
                                     <td>
                                         <div class="d-flex gap-2">
-                                            <a href="edit_candidate.php?id=<?php echo $candidate['id']; ?>" class="btn btn-sm btn-primary">
-                                                <i class="fas fa-edit"></i> Edit
+                                            <button type="button" class="btn btn-sm btn-info" onclick="editCandidate(<?php echo $candidate['id']; ?>)">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <a href="candidates.php?position_id=<?php echo $candidate['position_id']; ?>" class="btn btn-sm btn-success">
+                                                <i class="bi bi-people"></i>
                                             </a>
-                                            <a href="candidates.php?position_id=<?php echo $candidate['position_id']; ?>" class="btn btn-sm btn-info">
-                                                <i class="fas fa-users"></i> View Position
-                                            </a>
+                                            <button type="button" class="btn btn-sm btn-danger" onclick="deleteCandidate(<?php echo $candidate['id']; ?>)">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
                                         </div>
                                     </td>
                                 </tr>
@@ -408,6 +411,150 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         </div>
     </div>
 </div>
+
+<!-- Edit Candidate Modal -->
+<div class="modal fade" id="editCandidateModal" tabindex="-1" aria-labelledby="editCandidateModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editCandidateModalLabel">Edit Candidate</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editCandidateForm">
+                    <input type="hidden" id="edit_candidate_id" name="candidate_id">
+                    <div class="mb-3">
+                        <label for="edit_name" class="form-label">Name</label>
+                        <input type="text" class="form-control" id="edit_name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_description" class="form-label">Description</label>
+                        <textarea class="form-control" id="edit_description" name="description" rows="3"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_position_id" class="form-label">Position</label>
+                        <select class="form-select" id="edit_position_id" name="position_id" required>
+                            <?php foreach ($positions as $position): ?>
+                                <option value="<?php echo $position['id']; ?>">
+                                    <?php echo htmlspecialchars($position['title'] . ' (' . $position['election_title'] . ')'); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_photo" class="form-label">Photo</label>
+                        <input type="file" class="form-control" id="edit_photo" name="photo" accept="image/*">
+                        <div class="form-text">Leave empty to keep current photo</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="updateCandidate()">Update Candidate</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.border-left-primary {
+    border-left: 4px solid #4e73df !important;
+}
+.border-left-success {
+    border-left: 4px solid #1cc88a !important;
+}
+.border-left-warning {
+    border-left: 4px solid #f6c23e !important;
+}
+.text-gray-300 {
+    color: #dddfeb !important;
+}
+.text-gray-800 {
+    color: #5a5c69 !important;
+}
+
+/* Hover effects for stats cards */
+.stats-card {
+    transition: all 0.3s ease-in-out;
+    cursor: pointer;
+}
+
+.stats-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+}
+
+.stats-card:hover .text-gray-300 {
+    transform: scale(1.1);
+    transition: transform 0.3s ease-in-out;
+}
+
+.stats-card:hover .text-primary {
+    color: #2e59d9 !important;
+}
+
+.stats-card:hover .text-success {
+    color: #169b6b !important;
+}
+
+.stats-card:hover .text-warning {
+    color: #d4a106 !important;
+}
+
+.card {
+    transition: all 0.3s ease;
+}
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+.card .icon {
+    transition: all 0.3s ease;
+}
+.card:hover .icon {
+    transform: scale(1.1);
+}
+.toast-container {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 9999;
+}
+.toast {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    padding: 1rem 1.5rem;
+    margin-bottom: 1rem;
+    min-width: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.toast.success {
+    border-left: 4px solid #28a745;
+}
+.toast.error {
+    border-left: 4px solid #dc3545;
+}
+.toast.warning {
+    border-left: 4px solid #ffc107;
+}
+.toast .toast-body {
+    margin: 0;
+    padding: 0;
+}
+.toast .close {
+    margin-left: 1rem;
+    font-size: 1.25rem;
+    cursor: pointer;
+    opacity: 0.7;
+}
+.toast .close:hover {
+    opacity: 1;
+}
+</style>
 
 <script>
 document.querySelector('.select-all').addEventListener('change', function() {
@@ -550,52 +697,100 @@ document.getElementById('addCandidateForm').addEventListener('submit', function(
         submitButton.innerHTML = originalText;
     });
 });
+
+// Edit candidate function
+function editCandidate(candidateId) {
+    // Fetch candidate data
+    fetch(`get_candidate.php?id=${candidateId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('edit_candidate_id').value = data.candidate.id;
+                document.getElementById('edit_name').value = data.candidate.name;
+                document.getElementById('edit_description').value = data.candidate.description;
+                document.getElementById('edit_position_id').value = data.candidate.position_id;
+                
+                // Show modal using Bootstrap 5
+                const modal = new bootstrap.Modal(document.getElementById('editCandidateModal'));
+                modal.show();
+            } else {
+                showNotification(data.message || 'Error fetching candidate data', 'error');
+            }
+        })
+        .catch(error => {
+            showNotification('Error fetching candidate data', 'error');
+        });
+}
+
+// Update candidate function
+function updateCandidate() {
+    const formData = new FormData(document.getElementById('editCandidateForm'));
+    
+    fetch('update_candidate.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification('Candidate updated successfully');
+            // Hide modal using Bootstrap 5
+            const modal = bootstrap.Modal.getInstance(document.getElementById('editCandidateModal'));
+            modal.hide();
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        } else {
+            showNotification(data.message || 'Error updating candidate', 'error');
+        }
+    })
+    .catch(error => {
+        showNotification('Error updating candidate', 'error');
+    });
+}
+
+// Delete candidate function
+function deleteCandidate(candidateId) {
+    if (confirm('Are you sure you want to delete this candidate?')) {
+        fetch('delete_candidate.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `candidate_id=${candidateId}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification('Candidate deleted successfully');
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                showNotification(data.message || 'Error deleting candidate', 'error');
+            }
+        })
+        .catch(error => {
+            showNotification('Error deleting candidate', 'error');
+        });
+    }
+}
+
+// Show notification function
+function showNotification(message, type = 'success') {
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `
+        <div class="toast-body">${message}</div>
+        <button type="button" class="close" onclick="this.parentElement.remove()">&times;</button>
+    `;
+    document.querySelector('.toast-container').appendChild(toast);
+    
+    // Auto remove after 3 seconds
+    setTimeout(() => {
+        toast.remove();
+    }, 3000);
+}
 </script>
-
-<style>
-.border-left-primary {
-    border-left: 4px solid #4e73df !important;
-}
-.border-left-success {
-    border-left: 4px solid #1cc88a !important;
-}
-.border-left-warning {
-    border-left: 4px solid #f6c23e !important;
-}
-.text-gray-300 {
-    color: #dddfeb !important;
-}
-.text-gray-800 {
-    color: #5a5c69 !important;
-}
-
-/* Hover effects for stats cards */
-.stats-card {
-    transition: all 0.3s ease-in-out;
-    cursor: pointer;
-}
-
-.stats-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
-}
-
-.stats-card:hover .text-gray-300 {
-    transform: scale(1.1);
-    transition: transform 0.3s ease-in-out;
-}
-
-.stats-card:hover .text-primary {
-    color: #2e59d9 !important;
-}
-
-.stats-card:hover .text-success {
-    color: #169b6b !important;
-}
-
-.stats-card:hover .text-warning {
-    color: #d4a106 !important;
-}
-</style>
 
 <?php require_once "includes/footer.php"; ?> 
