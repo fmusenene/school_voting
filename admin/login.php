@@ -2,6 +2,12 @@
 session_start();
 require_once "../config/database.php";
 
+// Check if user is already logged in
+if (isset($_SESSION['admin_id'])) {
+    header("Location: /school_voting/admin/index.php");
+    exit();
+}
+
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $username = $_POST['username'];
     $password = $_POST['password'];
@@ -14,7 +20,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         if (password_verify($password, $row['password'])) {
             $_SESSION['admin_id'] = $row['id'];
             $_SESSION['admin_username'] = $row['username'];
-            header("location: index.php");
+            header("Location: /school_voting/admin/index.php");
             exit();
         }
     }

@@ -1,9 +1,11 @@
 <?php
+session_start();
+require_once "../config/database.php";
 require_once "includes/header.php";
 
 // Check if admin is logged in
 if (!isset($_SESSION['admin_id'])) {
-    header("location: login.php");
+    header("Location: /school_voting/admin/login.php");
     exit();
 }
 
@@ -22,11 +24,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (isset($_POST['delete_codes'])) {
         if (isset($_POST['selected_codes']) && is_array($_POST['selected_codes'])) {
             $selected_codes = array_map('intval', $_POST['selected_codes']);
-            $codes_string = implode(',', $selected_codes);
+            $placeholders = str_repeat('?,', count($selected_codes) - 1) . '?';
             
             // Delete the selected codes
-            $delete_sql = "DELETE FROM voting_codes WHERE id IN ($codes_string)";
-            if ($conn->exec($delete_sql)) {
+            $delete_sql = "DELETE FROM voting_codes WHERE id IN ($placeholders)";
+            $delete_stmt = $conn->prepare($delete_sql);
+            if ($delete_stmt->execute($selected_codes)) {
                 $success = "Selected voting codes deleted successfully!";
             } else {
                 $error = "Error deleting voting codes";
@@ -36,18 +39,23 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $election_id = $_POST['election_id'];
         $quantity = (int)$_POST['quantity'];
         
-        // Generate voting codes
-        $codes = [];
-        for ($i = 0; $i < $quantity; $i++) {
-            $code = strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 8));
-            $codes[] = "('$code', $election_id)";
-        }
-        
-        $sql = "INSERT INTO voting_codes (code, election_id) VALUES " . implode(',', $codes);
-        if ($conn->exec($sql)) {
+        try {
+            $conn->beginTransaction();
+            
+            // Generate voting codes
+            $insert_sql = "INSERT INTO voting_codes (code, election_id) VALUES (?, ?)";
+            $insert_stmt = $conn->prepare($insert_sql);
+            
+            for ($i = 0; $i < $quantity; $i++) {
+                $code = generateVotingCode();
+                $insert_stmt->execute([$code, $election_id]);
+            }
+            
+            $conn->commit();
             $success = "$quantity voting codes generated successfully!";
-        } else {
-            $error = "Error generating voting codes";
+        } catch (PDOException $e) {
+            $conn->rollBack();
+            $error = "Error generating voting codes: " . $e->getMessage();
         }
     }
 }
@@ -103,8 +111,8 @@ $codes_result = $codes_stmt;
                     </option>
                 <?php endwhile; ?>
             </select>
-            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#generateCodesModal">
-                <i class="bi bi-plus-lg"></i> Generate Codes
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addCodesModal">
+                <i class="bi bi-plus-lg"></i> Generate New Codes
             </button>
         </div>
     </div>

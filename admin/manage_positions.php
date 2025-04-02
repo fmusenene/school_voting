@@ -125,7 +125,7 @@ $election = mysqli_fetch_assoc($election_result);
                                 echo "<td>" . $position['description'] . "</td>";
                                 echo "<td>
                                         <a href='edit_position.php?id=" . $position['id'] . "' class='btn btn-sm btn-primary'>Edit</a>
-                                        <a href='manage_candidates.php?position_id=" . $position['id'] . "' class='btn btn-sm btn-success'>Manage Candidates</a>
+                                        <a href='candidates.php?position_id=" . $position['id'] . "' class='btn btn-sm btn-success'>Manage Candidates</a>
                                       </td>";
                                 echo "</tr>";
                             }

@@ -1,10 +1,7 @@
 <?php
-session_start();
-require_once "../config/database.php";
-
 // Check if user is logged in
 if (!isset($_SESSION['admin_id'])) {
-    header("Location: login.php");
+    header("Location: /school_voting/admin/login.php");
     exit();
 }
 ?>
@@ -148,43 +145,43 @@ if (!isset($_SESSION['admin_id'])) {
                 </div>
                 <ul class="nav flex-column">
                     <li class="nav-item">
-                        <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'index.php' ? 'active' : ''; ?>" href="index.php">
+                        <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'index.php' ? 'active' : ''; ?>" href="/school_voting/admin/index.php">
                             <i class="bi bi-speedometer2"></i>
                             <span>Dashboard</span>
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'elections.php' ? 'active' : ''; ?>" href="elections.php">
+                        <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'elections.php' ? 'active' : ''; ?>" href="/school_voting/admin/elections.php">
                             <i class="bi bi-calendar-check"></i>
                             <span>Elections</span>
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'positions.php' ? 'active' : ''; ?>" href="positions.php">
+                        <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'positions.php' ? 'active' : ''; ?>" href="/school_voting/admin/positions.php">
                             <i class="bi bi-person-badge"></i>
                             <span>Positions</span>
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'candidates.php' ? 'active' : ''; ?>" href="candidates.php">
+                        <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'candidates.php' ? 'active' : ''; ?>" href="/school_voting/admin/candidates.php">
                             <i class="bi bi-people"></i>
                             <span>Candidates</span>
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'voting_codes.php' ? 'active' : ''; ?>" href="voting_codes.php">
+                        <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'voting_codes.php' ? 'active' : ''; ?>" href="/school_voting/admin/voting_codes.php">
                             <i class="bi bi-key"></i>
                             <span>Voting Codes</span>
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'results.php' ? 'active' : ''; ?>" href="results.php">
+                        <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'results.php' ? 'active' : ''; ?>" href="/school_voting/admin/results.php">
                             <i class="bi bi-graph-up"></i>
                             <span>Results</span>
                         </a>
                     </li>
                     <li class="nav-item mt-3">
-                        <a class="nav-link" href="logout.php">
+                        <a class="nav-link" href="/school_voting/admin/logout.php">
                             <i class="bi bi-box-arrow-right"></i>
                             <span>Logout</span>
                         </a>
