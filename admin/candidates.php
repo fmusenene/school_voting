@@ -554,8 +554,147 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 .toast .close:hover {
     opacity: 1;
 }
+
+/* Add these styles at the top of your existing styles */
+.notification-container {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1050;
+    width: 90%;
+    max-width: 400px;
+    text-align: center;
+}
+
+.notification {
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    animation: slideIn 0.3s ease-out;
+}
+
+.notification.success {
+    background-color: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+}
+
+.notification.error {
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateY(-20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+/* Add a semi-transparent overlay behind the notification */
+.notification-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 1040;
+    display: none;
+}
+
+.notification-overlay.show {
+    display: block;
+}
+
+.confirmation-dialog {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 1060;
+    align-items: center;
+    justify-content: center;
+}
+
+.confirmation-dialog.show {
+    display: flex;
+}
+
+.confirmation-content {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    width: 90%;
+    max-width: 400px;
+    animation: slideIn 0.3s ease-out;
+}
+
+.confirmation-header {
+    padding: 1rem;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.confirmation-header h5 {
+    margin: 0;
+    color: #dc3545;
+}
+
+.confirmation-body {
+    padding: 1.5rem;
+    text-align: center;
+}
+
+.confirmation-footer {
+    padding: 1rem;
+    border-top: 1px solid #dee2e6;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.confirmation-footer button {
+    min-width: 80px;
+}
 </style>
 
+<!-- Add this right after the opening body tag -->
+<div class="notification-overlay" id="notificationOverlay"></div>
+<div class="notification-container" id="notificationContainer"></div>
+
+<!-- Update the PHP notification section -->
+<?php if (isset($_SESSION['success'])): ?>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            showNotification('<?php echo $_SESSION['success']; ?>', 'success');
+            <?php unset($_SESSION['success']); ?>
+        });
+    </script>
+<?php endif; ?>
+
+<?php if (isset($_SESSION['error'])): ?>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            showNotification('<?php echo $_SESSION['error']; ?>', 'error');
+            <?php unset($_SESSION['error']); ?>
+        });
+    </script>
+<?php endif; ?>
+
+<!-- Add this JavaScript at the bottom of the file, before the closing body tag -->
 <script>
 document.querySelector('.select-all').addEventListener('change', function() {
     document.querySelectorAll('.candidate-checkbox').forEach(checkbox => {
@@ -749,48 +888,94 @@ function updateCandidate() {
     });
 }
 
-// Delete candidate function
+let candidateToDelete = null;
+
+// Update the delete candidate function
 function deleteCandidate(candidateId) {
-    if (confirm('Are you sure you want to delete this candidate?')) {
-        fetch('delete_candidate.php', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: `candidate_id=${candidateId}`
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showNotification('Candidate deleted successfully');
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1000);
-            } else {
-                showNotification(data.message || 'Error deleting candidate', 'error');
-            }
-        })
-        .catch(error => {
-            showNotification('Error deleting candidate', 'error');
-        });
-    }
+    candidateToDelete = candidateId;
+    document.getElementById('confirmationDialog').classList.add('show');
+}
+
+// Add these new functions
+function closeConfirmationDialog() {
+    document.getElementById('confirmationDialog').classList.remove('show');
+    candidateToDelete = null;
+}
+
+function confirmDelete() {
+    if (!candidateToDelete) return;
+    
+    fetch('delete_candidate.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `candidate_id=${candidateToDelete}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification('Candidate deleted successfully');
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        } else {
+            showNotification(data.message || 'Error deleting candidate', 'error');
+        }
+    })
+    .catch(error => {
+        showNotification('Error deleting candidate', 'error');
+    })
+    .finally(() => {
+        closeConfirmationDialog();
+    });
 }
 
 // Show notification function
-function showNotification(message, type = 'success') {
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.innerHTML = `
-        <div class="toast-body">${message}</div>
-        <button type="button" class="close" onclick="this.parentElement.remove()">&times;</button>
-    `;
-    document.querySelector('.toast-container').appendChild(toast);
+function showNotification(message, type) {
+    const overlay = document.getElementById('notificationOverlay');
+    const container = document.getElementById('notificationContainer');
     
-    // Auto remove after 3 seconds
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    
+    // Clear previous notifications
+    container.innerHTML = '';
+    
+    // Add new notification
+    container.appendChild(notification);
+    
+    // Show overlay and notification
+    overlay.classList.add('show');
+    
+    // Hide after 3 seconds
     setTimeout(() => {
-        toast.remove();
+        overlay.classList.remove('show');
+        setTimeout(() => {
+            container.innerHTML = '';
+        }, 300);
     }, 3000);
 }
 </script>
+
+<!-- Add this HTML right after the notification container -->
+<div class="confirmation-dialog" id="confirmationDialog">
+    <div class="confirmation-content">
+        <div class="confirmation-header">
+            <h5>Confirm Delete</h5>
+            <button type="button" class="btn-close" onclick="closeConfirmationDialog()"></button>
+        </div>
+        <div class="confirmation-body">
+            <p>Are you sure you want to delete this candidate?</p>
+            <p class="text-muted">This action cannot be undone.</p>
+        </div>
+        <div class="confirmation-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeConfirmationDialog()">Cancel</button>
+            <button type="button" class="btn btn-danger" onclick="confirmDelete()">Delete</button>
+        </div>
+    </div>
+</div>
 
 <?php require_once "includes/footer.php"; ?> 

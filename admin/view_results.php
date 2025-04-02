@@ -8,75 +8,17 @@ if (!isset($_SESSION['admin_id'])) {
     exit();
 }
 
-if (!isset($_GET['id'])) {
-    $_SESSION['error'] = "No election specified for viewing results";
-    header("Location: elections.php");
-    exit();
-}
+// Get election ID from URL
+$election_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
-$election_id = (int)$_GET['id'];
-
-try {
 // Get election details
-    $sql = "SELECT * FROM elections WHERE id = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->execute([$election_id]);
-    $election = $stmt->fetch(PDO::FETCH_ASSOC);
+$election_sql = "SELECT * FROM elections WHERE id = ?";
+$stmt = $conn->prepare($election_sql);
+$stmt->execute([$election_id]);
+$election = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$election) {
-        $_SESSION['error'] = "Election not found";
-        header("Location: elections.php");
-        exit();
-    }
-
-    // Get total voters (using voting_code_id instead of voter_id)
-    $sql = "SELECT COUNT(DISTINCT v.voting_code_id) as total_voters 
-            FROM votes v 
-            WHERE v.election_id = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->execute([$election_id]);
-    $voters = $stmt->fetch(PDO::FETCH_ASSOC);
-    $total_voters = $voters['total_voters'];
-
-    // Get total votes cast
-    $sql = "SELECT COUNT(*) as total_votes FROM votes WHERE election_id = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->execute([$election_id]);
-    $votes = $stmt->fetch(PDO::FETCH_ASSOC);
-    $total_votes = $votes['total_votes'];
-
-    // Get positions with their candidates and votes
-    $sql = "SELECT p.id, p.title as position_title, 
-                   c.id as candidate_id, c.name as candidate_name,
-                   COUNT(v.id) as vote_count
-            FROM positions p
-            LEFT JOIN candidates c ON c.position_id = p.id
-            LEFT JOIN votes v ON v.candidate_id = c.id AND v.election_id = ?
-            WHERE p.election_id = ?
-            GROUP BY p.id, c.id
-            ORDER BY p.title, vote_count DESC";
-    $stmt = $conn->prepare($sql);
-    $stmt->execute([$election_id, $election_id]);
-    $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    // Organize results by position
-    $positions = [];
-    foreach ($results as $row) {
-        if (!isset($positions[$row['id']])) {
-            $positions[$row['id']] = [
-                'title' => $row['position_title'],
-                'candidates' => []
-            ];
-        }
-        if ($row['candidate_id']) {
-            $positions[$row['id']]['candidates'][] = [
-                'name' => $row['candidate_name'],
-                'votes' => $row['vote_count']
-            ];
-        }
-    }
-} catch (PDOException $e) {
-    $_SESSION['error'] = "Error fetching results: " . $e->getMessage();
+    $_SESSION['error'] = "Election not found.";
     header("Location: elections.php");
     exit();
 }
@@ -85,167 +27,217 @@ require_once "includes/header.php";
 ?>
 
 <style>
-.page-header {
-    background: linear-gradient(135deg, #6B73FF 0%, #000DFF 100%);
-    color: white;
-    padding: 2rem;
-    border-radius: 10px;
-    margin-bottom: 2rem;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-}
-
-.stats-card {
+.results-card {
     background: white;
     border-radius: 10px;
-    padding: 1.5rem;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    text-align: center;
-}
-
-.stats-number {
-    font-size: 2.5rem;
-    font-weight: 600;
-    color: #1890ff;
-    margin-bottom: 0.5rem;
-}
-
-.stats-label {
-    color: #6c757d;
-    font-size: 0.9rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-
-.position-card {
-    background: white;
-    border-radius: 10px;
-    padding: 1.5rem;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     margin-bottom: 1.5rem;
+    overflow: hidden;
 }
 
-.position-title {
+.results-header {
+    background: #f8f9fa;
+    padding: 1rem;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.results-header h3 {
+    margin: 0;
     color: #2c3e50;
-    font-size: 1.25rem;
-    font-weight: 600;
-    margin-bottom: 1.5rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 2px solid #e9ecef;
+    font-size: 1.2rem;
 }
 
-.candidate-row {
+.results-body {
+    padding: 1.5rem;
+}
+
+.candidate-card {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    transition: transform 0.2s;
+}
+
+.candidate-card:hover {
+    transform: translateY(-2px);
+}
+
+.candidate-info {
     display: flex;
     align-items: center;
-    padding: 1rem;
-    border-radius: 8px;
     margin-bottom: 0.5rem;
-    background: #f8f9fa;
 }
 
 .candidate-photo {
-    width: 48px;
-    height: 48px;
+    width: 60px;
+    height: 60px;
     border-radius: 50%;
     object-fit: cover;
     margin-right: 1rem;
 }
 
 .candidate-name {
-    flex-grow: 1;
+    font-size: 1.1rem;
     font-weight: 500;
+    color: #2c3e50;
+    margin: 0;
 }
 
-.vote-count {
-    background: #e9ecef;
-    padding: 0.5rem 1rem;
-    border-radius: 20px;
+.candidate-votes {
+    font-size: 1.5rem;
     font-weight: 600;
-    color: #2c3e50;
+    color: #1890ff;
+    margin: 0.5rem 0;
 }
 
 .progress {
     height: 8px;
-    margin-top: 0.5rem;
+    background-color: #e9ecef;
+    border-radius: 4px;
+    overflow: hidden;
 }
 
-.btn-back {
-    background: #6c757d;
-    color: white;
-    border: none;
-    padding: 0.6rem 2rem;
-    border-radius: 6px;
+.progress-bar {
+    background-color: #1890ff;
+    transition: width 0.3s ease;
+}
+
+.winner-badge {
+    background: #e3fcef;
+    color: #00a854;
+    padding: 0.25rem 0.75rem;
+    border-radius: 50px;
+    font-size: 0.85rem;
     font-weight: 500;
-    text-decoration: none;
+    margin-left: 0.5rem;
 }
 
-.btn-back:hover {
-    background: #5a6268;
-    color: white;
+.back-button {
+    background: #f8f9fa;
+    color: #2c3e50;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 5px;
+    font-weight: 500;
+    transition: background 0.2s;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.back-button:hover {
+    background: #e9ecef;
+    color: #2c3e50;
+}
+
+.back-button i {
+    margin-right: 0.5rem;
 }
 </style>
 
 <div class="container-fluid py-4">
-    <div class="page-header d-flex justify-content-between align-items-center">
-        <div>
-            <h1 class="fs-2 mb-0"><?php echo htmlspecialchars($election['title']); ?> Results</h1>
-            <p class="mb-0 mt-2 text-white-50">
-                <?php echo date('F j, Y', strtotime($election['start_date'])); ?> - 
-                <?php echo date('F j, Y', strtotime($election['end_date'])); ?>
-            </p>
-        </div>
-        <a href="elections.php" class="btn btn-back">
-            <i class="bi bi-arrow-left"></i> Back to Elections
-        </a>
-</div>
+    <a href="elections.php" class="back-button">
+        <i class="bi bi-arrow-left"></i> Back to Elections
+    </a>
 
-    <div class="row g-4 mb-4">
-        <div class="col-md-6">
-            <div class="stats-card">
-                <div class="stats-number"><?php echo $total_voters; ?></div>
-                <div class="stats-label">Total Voters</div>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0 text-gray-800"><?php echo htmlspecialchars($election['title']); ?> Results</h1>
+        <div>
+            <span class="badge bg-<?php echo $election['status'] === 'active' ? 'success' : ($election['status'] === 'pending' ? 'warning' : 'secondary'); ?>">
+                <?php echo ucfirst($election['status']); ?>
+            </span>
+        </div>
+    </div>
+
+    <?php
+    // Get positions for this election
+    $positions_sql = "SELECT * FROM positions WHERE election_id = ? ORDER BY title";
+    $stmt = $conn->prepare($positions_sql);
+    $stmt->execute([$election_id]);
+    $positions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($positions as $position) {
+        // Get candidates for this position
+        $candidates_sql = "SELECT c.*, 
+            (SELECT COUNT(*) FROM votes WHERE candidate_id = c.id) as vote_count
+            FROM candidates c 
+            WHERE c.position_id = ? 
+            ORDER BY vote_count DESC";
+        $stmt = $conn->prepare($candidates_sql);
+        $stmt->execute([$position['id']]);
+        $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Calculate total votes for this position
+        $total_votes = array_sum(array_column($candidates, 'vote_count'));
+
+        // Get winner(s)
+        $max_votes = max(array_column($candidates, 'vote_count'));
+        $winners = array_filter($candidates, function($c) use ($max_votes) {
+            return $c['vote_count'] == $max_votes;
+        });
+        ?>
+        
+        <div class="results-card">
+            <div class="results-header">
+                <h3><?php echo htmlspecialchars($position['title']); ?></h3>
+            </div>
+            <div class="results-body">
+                <?php if (count($candidates) > 0): ?>
+                    <?php foreach ($candidates as $candidate): ?>
+                        <div class="candidate-card">
+                            <div class="candidate-info">
+                                <?php if (!empty($candidate['photo'])): ?>
+                                    <img src="../<?php echo htmlspecialchars($candidate['photo']); ?>" 
+                                         alt="<?php echo htmlspecialchars($candidate['name']); ?>"
+                                         class="candidate-photo">
+                                <?php else: ?>
+                                    <div class="candidate-photo bg-secondary text-white d-flex align-items-center justify-content-center">
+                                        <i class="bi bi-person"></i>
+                                    </div>
+                                <?php endif; ?>
+                                <div>
+                                    <h4 class="candidate-name">
+                                        <?php echo htmlspecialchars($candidate['name']); ?>
+                                        <?php if (in_array($candidate, $winners)): ?>
+                                            <span class="winner-badge">Winner</span>
+                                        <?php endif; ?>
+                                    </h4>
+                                    <div class="candidate-votes">
+                                        <?php echo $candidate['vote_count']; ?> votes
+                                        <?php if ($total_votes > 0): ?>
+                                            (<?php echo round(($candidate['vote_count'] / $total_votes) * 100); ?>%)
+                                        <?php endif; ?>
+                                    </div>
+                                    <?php if ($total_votes > 0): ?>
+                                        <div class="progress">
+                                            <div class="progress-bar" 
+                                                 role="progressbar" 
+                                                 style="width: <?php echo ($candidate['vote_count'] / $total_votes) * 100; ?>%">
+                                            </div>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-people fs-2"></i>
+                        <p class="mt-2">No candidates registered for this position</p>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
-        <div class="col-md-6">
-            <div class="stats-card">
-                <div class="stats-number"><?php echo $total_votes; ?></div>
-                <div class="stats-label">Total Votes Cast</div>
-        </div>
-    </div>
-</div>
+    <?php } ?>
 
-<?php foreach ($positions as $position): ?>
-        <div class="position-card">
-            <h3 class="position-title"><?php echo htmlspecialchars($position['title']); ?></h3>
-            
-    <?php
-            // Sort candidates by vote count in descending order
-            usort($position['candidates'], function($a, $b) {
-                return $b['votes'] - $a['votes'];
-            });
-            
-            // Find maximum votes for percentage calculation
-            $max_votes = 0;
-            foreach ($position['candidates'] as $candidate) {
-                $max_votes = max($max_votes, $candidate['votes']);
-            }
-            
-            foreach ($position['candidates'] as $candidate): 
-                $percentage = $max_votes > 0 ? ($candidate['votes'] / $max_votes) * 100 : 0;
-            ?>
-                <div class="candidate-row">
-                    <div class="candidate-name"><?php echo htmlspecialchars($candidate['name']); ?></div>
-                    <div class="vote-count"><?php echo $candidate['votes']; ?> votes</div>
-                </div>
-                <div class="progress">
-                    <div class="progress-bar bg-primary" role="progressbar" 
-                         style="width: <?php echo $percentage; ?>%" 
-                         aria-valuenow="<?php echo $percentage; ?>" 
-                         aria-valuemin="0" 
-                         aria-valuemax="100"></div>
+    <?php if (empty($positions)): ?>
+        <div class="text-center text-muted py-5">
+            <i class="bi bi-calendar-x fs-2"></i>
+            <p class="mt-2">No positions found for this election</p>
         </div>
-                        <?php endforeach; ?>
-        </div>
-    <?php endforeach; ?>
-    </div>
+    <?php endif; ?>
+</div>
 
 <?php require_once "includes/footer.php"; ?> 
