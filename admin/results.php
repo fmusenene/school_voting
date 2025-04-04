@@ -195,7 +195,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1 class="h3 mb-0 text-gray-800">Election Results</h1>
         <div class="d-flex align-items-center gap-2">
-            <div class="input-group input-group-sm" style="width: 200px;">
+            <div class="input-group input-group-sm" style="width: 250px;">
                 <select class="form-select form-select-sm" id="electionSelect" onchange="filterResults(this.value)">
                     <option value="">All Elections</option>
                     <?php foreach ($elections as $election): ?>
@@ -216,7 +216,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
                             <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
-                                Total Voting Codes</div>
+                                <?php echo $selected_election_id ? 'Election Voting Codes' : 'Total Voting Codes'; ?></div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800" id="totalCodes">0</div>
                         </div>
                         <div class="col-auto">
@@ -235,7 +235,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
                             <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
-                                Total Votes Cast</div>
+                                <?php echo $selected_election_id ? 'Election Votes Cast' : 'Total Votes Cast'; ?></div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800" id="totalVotes">0</div>
                         </div>
                         <div class="col-auto">
@@ -254,7 +254,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
                             <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
-                                Used Codes</div>
+                                <?php echo $selected_election_id ? 'Election Used Codes' : 'Total Used Codes'; ?></div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800" id="usedCodes">0</div>
                         </div>
                         <div class="col-auto">
@@ -273,7 +273,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
                             <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
-                                Voter Turnout</div>
+                                <?php echo $selected_election_id ? 'Election Voter Turnout' : 'Overall Voter Turnout'; ?></div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800">
                                 <span id="voterTurnout">0</span>%
                             </div>
@@ -332,7 +332,9 @@ document.addEventListener('DOMContentLoaded', function() {
     <!-- Results Table -->
     <div class="card shadow mb-4">
         <div class="card-header py-3">
-            <h6 class="m-0 font-weight-bold text-primary">Election Results</h6>
+            <h6 class="m-0 font-weight-bold text-primary">
+                <?php echo $selected_election_id ? htmlspecialchars($elections[array_search($selected_election_id, array_column($elections, 'id'))]['title']) . ' Results' : 'All Elections Results'; ?>
+            </h6>
         </div>
         <div class="card-body">
             <?php if (empty($results)): ?>
@@ -345,7 +347,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 $current_position = null;
                 
                 foreach ($results as $result):
-                    if ($current_election !== $result['election_id']):
+                    // Only show election header if showing all elections
+                    if (!$selected_election_id && $current_election !== $result['election_id']):
                         if ($current_election !== null):
                             echo '</div></div>'; // Close previous election
                         endif;
@@ -364,10 +367,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     endif;
                     
                     // Calculate percentage
-                    $total_votes = array_sum(array_column(array_filter($results, function($r) use ($result) {
+                    $position_votes = array_filter($results, function($r) use ($result) {
                         return $r['position_id'] === $result['position_id'];
-                    }), 'vote_count'));
-                    
+                    });
+                    $total_votes = array_sum(array_column($position_votes, 'vote_count'));
                     $percentage = $total_votes > 0 ? round(($result['vote_count'] / $total_votes) * 100, 1) : 0;
                     ?>
                     
@@ -376,9 +379,6 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div class="d-flex align-items-center">
                                 <?php if ($result['candidate_photo']): 
                                     $image_path = "../" . htmlspecialchars($result['candidate_photo']);
-                                    // Debug information
-                                    error_log("Image path: " . $image_path);
-                                    error_log("File exists: " . (file_exists($_SERVER['DOCUMENT_ROOT'] . "/school_voting/" . $result['candidate_photo']) ? 'Yes' : 'No'));
                                 ?>
                                     <img src="<?php echo $image_path; ?>" 
                                          alt="<?php echo htmlspecialchars($result['candidate_name']); ?>"
@@ -413,7 +413,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div> <!-- Close last position -->
                 <?php endif; ?>
                 
-                <?php if ($current_election !== null): ?>
+                <?php if ($current_election !== null && !$selected_election_id): ?>
                     </div> <!-- Close last election -->
                 <?php endif; ?>
             <?php endif; ?>
