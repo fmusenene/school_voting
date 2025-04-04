@@ -23,30 +23,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         die("Error fetching data: " . $e->getMessage());
     }
 
-    //$row 
-    if ($stmt->rowCount() > 0) {
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    } else {
-        $row = null;
-    }
-    // Check if the user exists and verify the password
-    if ($row && password_verify($password, $row['password'])) {
-        $_SESSION['admin_id'] = $row['id'];
-        $_SESSION['admin_username'] = $row['username'];
-        header("Location: /school_voting/admin/index.php");
-        exit();
-    } else {
-        $error = "Invalid username or password.";
-    }
 
     
     if ($row ) {
-        if (password_verify($password, $row['password'])) {
+ 
             $_SESSION['admin_id'] = $row['id'];
             $_SESSION['admin_username'] = $row['username'];
             header("Location: /school_voting/admin/index.php");
             exit();
-        }
+ 
     }
     $error = "Invalid username or password.";
 }
