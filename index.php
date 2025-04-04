@@ -82,10 +82,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         try {
             // 1. Check if the code exists, is unused, get ID and election_id
             $stmt_code = $conn->prepare("SELECT id, election_id FROM voting_codes WHERE code = :code AND is_used = 0 LIMIT 1");
-            if (!$stmt_code) {
-                error_log("SQL Error (index.php): " . implode(" | ", $conn->errorInfo()));
-                throw new Exception("Failed to prepare the SQL statement.");
-            }
             $stmt_code->bindParam(':code', $submitted_code, PDO::PARAM_STR);
             $stmt_code->execute();
             $code_data = $stmt_code->fetch(PDO::FETCH_ASSOC);
