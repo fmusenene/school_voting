@@ -1,531 +1,493 @@
 <?php
-session_start();
-require_once "../config/database.php";
+require_once "includes/init.php";
+require_once "includes/database.php";
+require_once "includes/session.php";
+
+// Check if admin is logged in
+if (!isset($_SESSION['admin_id'])) {
+    header("Location: /school_voting/admin/login.php");
+    exit();
+}
+
 require_once "includes/header.php";
 
-// Get all elections for the dropdown
+// Get all elections
 $elections_sql = "SELECT * FROM elections ORDER BY title";
 $elections = $conn->query($elections_sql)->fetchAll(PDO::FETCH_ASSOC);
 
 // Get selected election ID from URL
 $selected_election_id = isset($_GET['election_id']) ? (int)$_GET['election_id'] : null;
 
-// Get positions with their candidates and votes
-$positions_sql = "SELECT p.*, e.title as election_title,
-    (SELECT COUNT(*) FROM votes v WHERE v.candidate_id IN (SELECT id FROM candidates WHERE position_id = p.id)) as total_votes
-    FROM positions p
-    INNER JOIN elections e ON p.election_id = e.id
-    WHERE 1=1";
-
-if ($selected_election_id) {
-    $positions_sql .= " AND p.election_id = ?";
-}
-
-$positions_sql .= " ORDER BY e.title, p.title";
-
-$stmt = $conn->prepare($positions_sql);
-if ($selected_election_id) {
-    $stmt->execute([$selected_election_id]);
-} else {
-    $stmt->execute();
-}
-$positions = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Get voting statistics
-$stats_sql = "SELECT 
-    COUNT(DISTINCT vc.id) as total_codes,
-    COUNT(DISTINCT CASE WHEN vc.is_used = 1 THEN vc.id END) as used_codes,
-    COUNT(DISTINCT v.id) as total_votes
-FROM voting_codes vc
-LEFT JOIN votes v ON vc.id = v.voting_code_id
+// Get election results
+$results_sql = "SELECT 
+    e.id as election_id,
+    e.title as election_title,
+    p.id as position_id,
+    p.title as position_title,
+    c.id as candidate_id,
+    c.name as candidate_name,
+    c.photo as candidate_photo,
+    COUNT(v.id) as vote_count
+FROM elections e
+LEFT JOIN positions p ON e.id = p.election_id
+LEFT JOIN candidates c ON p.id = c.position_id
+LEFT JOIN votes v ON c.id = v.candidate_id
 WHERE 1=1";
 
+$params = [];
+
 if ($selected_election_id) {
-    $stats_sql .= " AND vc.election_id = ?";
-    $stats_stmt = $conn->prepare($stats_sql);
-    $stats_stmt->execute([$selected_election_id]);
-} else {
-    $stats_stmt = $conn->prepare($stats_sql);
-    $stats_stmt->execute();
+    $results_sql .= " AND e.id = ?";
+    $params[] = $selected_election_id;
 }
+
+$results_sql .= " GROUP BY e.id, e.title, p.id, p.title, c.id, c.name, c.photo
+                 ORDER BY e.title, p.title, vote_count DESC";
+
+$stmt = $conn->prepare($results_sql);
+$stmt->execute($params);
+$results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Get statistics
+$stats_sql = "SELECT 
+    (SELECT COUNT(*) FROM voting_codes WHERE 1=1 " . ($selected_election_id ? "AND election_id = ?" : "") . ") as total_codes,
+    (SELECT COUNT(DISTINCT v.id) 
+     FROM votes v 
+     JOIN voting_codes vc ON v.voting_code_id = vc.id 
+     JOIN positions p ON v.position_id = p.id
+     WHERE 1=1 " . ($selected_election_id ? "AND p.election_id = ?" : "") . ") as total_votes,
+    (SELECT COUNT(*) 
+     FROM voting_codes vc
+     WHERE vc.is_used = 1 " . ($selected_election_id ? "AND vc.election_id = ?" : "") . ") as used_codes";
+
+$stats_params = [];
+if ($selected_election_id) {
+    $stats_params = [$selected_election_id, $selected_election_id, $selected_election_id];
+}
+
+$stats_stmt = $conn->prepare($stats_sql);
+$stats_stmt->execute($stats_params);
 $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
 
-// Add percentage calculations
-$used_codes_percentage = $stats['total_codes'] > 0 ? 
+// Calculate voter turnout
+$stats['voter_turnout'] = $stats['total_codes'] > 0 ? 
     round(($stats['used_codes'] / $stats['total_codes']) * 100, 1) : 0;
 
-$votes_per_code = $stats['used_codes'] > 0 ? 
-    round($stats['total_votes'] / $stats['used_codes'], 1) : 0;
+// Add animation to statistics cards
 ?>
-
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h1 class="h3 mb-0 text-gray-800">Election Results</h1>
-    <div class="d-flex align-items-center">
-        <select class="form-select me-2" id="electionSelect" onchange="filterResults(this.value)">
-            <option value="">All Elections</option>
-            <?php foreach ($elections as $election): ?>
-                <option value="<?php echo $election['id']; ?>" <?php echo $selected_election_id == $election['id'] ? 'selected' : ''; ?>>
-                    <?php echo htmlspecialchars($election['title']); ?>
-                </option>
-            <?php endforeach; ?>
-        </select>
-    </div>
-</div>
-
-<!-- Statistics Cards -->
-<div class="row mb-4">
-    <!-- Total Voting Codes Card -->
-    <div class="col-xl-4 col-md-6 mb-4">
-        <div class="card border-left-primary shadow h-100 py-2 stats-card">
-            <div class="card-body">
-                <div class="row no-gutters align-items-center">
-                    <div class="col mr-2">
-                        <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
-                            Total Voting Codes</div>
-                        <div class="h5 mb-0 font-weight-bold text-gray-800">
-                            <?php echo number_format($stats['total_codes']); ?>
-                        </div>
-                        <div class="text-xs text-muted mt-1">
-                            <?php echo $used_codes_percentage; ?>% used
-                        </div>
-                    </div>
-                    <div class="col-auto">
-                        <i class="bi bi-qr-code fs-2 text-gray-300"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Used Codes Card -->
-    <div class="col-xl-4 col-md-6 mb-4">
-        <div class="card border-left-success shadow h-100 py-2 stats-card">
-            <div class="card-body">
-                <div class="row no-gutters align-items-center">
-                    <div class="col mr-2">
-                        <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
-                            Used Codes</div>
-                        <div class="h5 mb-0 font-weight-bold text-gray-800">
-                            <?php echo number_format($stats['used_codes']); ?>
-                        </div>
-                        <div class="text-xs text-muted mt-1">
-                            <?php echo $votes_per_code; ?> votes per code avg.
-                        </div>
-                    </div>
-                    <div class="col-auto">
-                        <i class="bi bi-check-circle fs-2 text-gray-300"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Total Votes Card -->
-    <div class="col-xl-4 col-md-6 mb-4">
-        <div class="card border-left-warning shadow h-100 py-2 stats-card">
-            <div class="card-body">
-                <div class="row no-gutters align-items-center">
-                    <div class="col mr-2">
-                        <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
-                            Total Votes Cast</div>
-                        <div class="h5 mb-0 font-weight-bold text-gray-800">
-                            <?php echo number_format($stats['total_votes']); ?>
-                        </div>
-                        <div class="text-xs text-muted mt-1">
-                            across <?php echo count($positions); ?> position(s)
-                        </div>
-                    </div>
-                    <div class="col-auto">
-                        <i class="bi bi-bar-chart fs-2 text-gray-300"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<?php if (empty($positions)): ?>
-    <div class="text-center text-muted py-5">
-        <i class="bi bi-calendar-x fs-2"></i>
-        <p class="mt-2">No election results found</p>
-    </div>
-<?php else: ?>
-    <?php
-    // Group positions by election
-    $elections = [];
-    foreach ($positions as $position) {
-        if (!isset($elections[$position['election_id']])) {
-            $elections[$position['election_id']] = [
-                'title' => $position['election_title'],
-                'positions' => []
-            ];
-        }
-        $elections[$position['election_id']]['positions'][] = $position;
+<script nonce="<?php echo $_SESSION['csp_nonce']; ?>">
+document.addEventListener('DOMContentLoaded', function() {
+    // Animate statistics numbers
+    function animateValue(id, start, end, duration) {
+        const obj = document.getElementById(id);
+        if (!obj) return;
+        
+        let startTimestamp = null;
+        const step = (timestamp) => {
+            if (!startTimestamp) startTimestamp = timestamp;
+            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+            const current = Math.floor(progress * (end - start) + start);
+            obj.innerHTML = current.toLocaleString();
+            if (progress < 1) {
+                window.requestAnimationFrame(step);
+            }
+        };
+        window.requestAnimationFrame(step);
     }
-    ?>
 
-    <?php foreach ($elections as $election): ?>
-        <div class="results-card mb-4">
-            <div class="results-header">
-                <h3><?php echo htmlspecialchars($election['title']); ?></h3>
-            </div>
-            <div class="results-body">
-                <?php foreach ($election['positions'] as $position): ?>
-                    <div class="position-section">
-                        <div class="position-header">
-                            <h2 class="position-title"><?php echo htmlspecialchars($position['title']); ?></h2>
-                            <div class="total-votes">Total Votes: <?php echo $position['total_votes']; ?></div>
-                        </div>
-                        <?php
-                        // Get candidates for this position
-                        $candidates_sql = "SELECT c.*, 
-                            (SELECT COUNT(*) FROM votes WHERE candidate_id = c.id) as vote_count
-                            FROM candidates c 
-                            WHERE c.position_id = ? 
-                            ORDER BY vote_count DESC";
-                        $stmt = $conn->prepare($candidates_sql);
-                        $stmt->execute([$position['id']]);
-                        $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Animate each statistic with actual values from PHP
+    const stats = {
+        totalCodes: <?php echo (int)$stats['total_codes']; ?>,
+        totalVotes: <?php echo (int)$stats['total_votes']; ?>,
+        usedCodes: <?php echo (int)$stats['used_codes']; ?>,
+        voterTurnout: <?php echo (float)$stats['voter_turnout']; ?>
+    };
 
-                        // Calculate total votes for this position
-                        $total_votes = array_sum(array_column($candidates, 'vote_count'));
-
-                        // Get winner(s)
-                        $max_votes = $total_votes > 0 ? max(array_column($candidates, 'vote_count')) : 0;
-                        ?>
-
-                        <?php if (count($candidates) > 0): ?>
-                            <ul class="candidates-list">
-                                <?php 
-                                // Get winner(s)
-                                $winners = array_filter($candidates, function($c) use ($max_votes) {
-                                    return $c['vote_count'] == $max_votes;
-                                });
-                                ?>
-                                <?php foreach ($candidates as $candidate): 
-                                    $is_winner = $candidate['vote_count'] == $max_votes;
-                                ?>
-                                    <li class="candidate-item <?php echo $is_winner ? 'winner' : ''; ?>">
-                                        <?php if (!empty($candidate['photo'])): ?>
-                                            <img src="../<?php echo htmlspecialchars($candidate['photo']); ?>" 
-                                                 alt="<?php echo htmlspecialchars($candidate['name']); ?>"
-                                                 class="candidate-photo">
-                                        <?php else: ?>
-                                            <div class="candidate-photo bg-secondary text-white d-flex align-items-center justify-content-center">
-                                                <i class="bi bi-person"></i>
-                                            </div>
-                                        <?php endif; ?>
-                                        <div class="candidate-info">
-                                            <h3 class="candidate-name">
-                                                <?php echo htmlspecialchars($candidate['name']); ?>
-                                                <?php if ($is_winner): ?>
-                                                    <span class="winner-badge">Winner</span>
-                                                <?php endif; ?>
-                                            </h3>
-                                            <div class="vote-info">
-                                                <div class="vote-count"><?php echo $candidate['vote_count']; ?> votes</div>
-                                                <?php if ($total_votes > 0): ?>
-                                                    <div class="vote-percentage">(<?php echo round(($candidate['vote_count'] / $total_votes) * 100, 1); ?>%)</div>
-                                                <?php endif; ?>
-                                            </div>
-                                        </div>
-                                    </li>
-                                <?php endforeach; ?>
-                            </ul>
-
-                            <?php if ($total_votes > 0): ?>
-                                <?php foreach ($winners as $winner): ?>
-                                    <div class="winner-announcement">
-                                        <i class="bi bi-trophy-fill me-2"></i>
-                                        Winner: <?php echo htmlspecialchars($winner['name']); ?> 
-                                        with <?php echo $winner['vote_count']; ?> votes 
-                                        (<?php echo round(($winner['vote_count'] / $total_votes) * 100, 1); ?>% of total votes)
-                                    </div>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
-                        <?php else: ?>
-                            <div class="no-candidates">
-                                <i class="bi bi-people"></i>
-                                <p>No candidates registered for this position</p>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-        </div>
-    <?php endforeach; ?>
-<?php endif; ?>
-
-<style>
-/* Card hover effects */
-.card {
-    transition: all 0.3s ease-in-out;
-    cursor: pointer;
-}
-
-.card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
-}
-
-/* Stats card specific hover effects */
-.stats-card:hover .text-gray-300 {
-    transform: scale(1.1);
-    transition: transform 0.3s ease-in-out;
-}
-
-.stats-card:hover .text-primary {
-    color: #2e59d9 !important;
-}
-
-.stats-card:hover .text-success {
-    color: #169b6b !important;
-}
-
-.stats-card:hover .text-warning {
-    color: #d4a106 !important;
-}
-
-/* Election card specific hover effects */
-.election-card:hover .card-header {
-    background-color: #f8f9fc;
-}
-
-.election-card:hover .position-card {
-    transform: translateX(5px);
-    transition: transform 0.3s ease-in-out;
-}
-
-.election-card:hover .candidate-card {
-    transform: translateX(5px);
-    transition: transform 0.3s ease-in-out;
-}
-
-/* Progress bar hover effect */
-.progress {
-    transition: all 0.3s ease-in-out;
-}
-
-.progress:hover {
-    height: 1.5rem;
-}
-
-/* Vote count hover effect */
-.vote-count {
-    transition: all 0.3s ease-in-out;
-}
-
-.candidate-card:hover .vote-count {
-    transform: scale(1.1);
-    color: #4e73df;
-}
-
-/* Winner badge hover effect */
-.winner-badge {
-    transition: all 0.3s ease-in-out;
-}
-
-.candidate-card:hover .winner-badge {
-    transform: scale(1.1);
-}
-
-/* Card border colors */
-.border-left-primary {
-    border-left: 4px solid #4e73df !important;
-}
-.border-left-success {
-    border-left: 4px solid #1cc88a !important;
-}
-.border-left-warning {
-    border-left: 4px solid #f6c23e !important;
-}
-
-/* Text colors */
-.text-gray-300 {
-    color: #dddfeb !important;
-}
-.text-gray-800 {
-    color: #5a5c69 !important;
-}
-
-/* Candidate card styles */
-.candidate-card {
-    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-}
-
-.candidate-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-}
-
-.candidate-card.winner {
-    background-color: #e8f5e9 !important;
-    border: 1px solid #4caf50;
-}
-
-.progress {
-    background-color: #e9ecef;
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-.progress-bar {
-    transition: width 0.6s ease;
-}
-
-.badge {
-    font-size: 0.75rem;
-    padding: 0.25rem 0.5rem;
-}
-
-.bi-trophy-fill {
-    color: #ffd700;
-}
-
-.position-section {
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    margin-bottom: 2rem;
-    overflow: hidden;
-}
-
-.position-header {
-    padding: 1rem;
-    border-bottom: 1px solid #e9ecef;
-    background: #f8f9fa;
-}
-
-.position-title {
-    font-size: 1.25rem;
-    margin: 0;
-    color: #333;
-}
-
-.total-votes {
-    color: #6c757d;
-    font-size: 0.9rem;
-    margin-top: 0.25rem;
-}
-
-.candidates-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
-
-.candidate-item {
-    display: flex;
-    align-items: center;
-    padding: 1rem;
-    border-bottom: 1px solid #e9ecef;
-    transition: background-color 0.2s;
-}
-
-.candidate-item:last-child {
-    border-bottom: none;
-}
-
-.candidate-item:hover {
-    background-color: #f8f9fa;
-}
-
-.candidate-item.winner {
-    background-color: #e3fcef;
-    border-left: 4px solid #00a854;
-}
-
-.candidate-photo {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    margin-right: 1rem;
-    object-fit: cover;
-}
-
-.candidate-info {
-    flex: 1;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.candidate-name {
-    font-size: 1rem;
-    color: #333;
-    margin: 0;
-    display: flex;
-    align-items: center;
-}
-
-.candidate-name .winner-badge {
-    margin-left: 0.5rem;
-    background: #e3fcef;
-    color: #00a854;
-    padding: 0.25rem 0.75rem;
-    border-radius: 50px;
-    font-size: 0.75rem;
-}
-
-.vote-info {
-    text-align: right;
-    color: #0066ff;
-    font-weight: 500;
-}
-
-.vote-count {
-    font-size: 1rem;
-    margin: 0;
-}
-
-.vote-percentage {
-    color: #6c757d;
-    font-size: 0.875rem;
-    margin: 0;
-}
-
-.no-candidates {
-    text-align: center;
-    padding: 2rem;
-    color: #6c757d;
-}
-
-.no-candidates i {
-    font-size: 2rem;
-    margin-bottom: 0.5rem;
-}
-
-.winner-announcement {
-    text-align: center;
-    padding: 1.5rem;
-    margin-top: 1rem;
-    background: #e3fcef;
-    border-radius: 8px;
-    color: #00a854;
-    font-weight: 500;
-    animation: fadeIn 0.5s ease-out;
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(-10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-</style>
-
-<script>
-function filterResults(electionId) {
-    if (electionId) {
-        window.location.href = `results.php?election_id=${electionId}`;
-    } else {
-        window.location.href = 'results.php';
-    }
-}
+    // Start animations
+    animateValue('totalCodes', 0, stats.totalCodes, 2000);
+    animateValue('totalVotes', 0, stats.totalVotes, 2000);
+    animateValue('usedCodes', 0, stats.usedCodes, 2000);
+    animateValue('voterTurnout', 0, stats.voterTurnout, 2000);
+});
 </script>
 
-<?php require_once "includes/footer.php"; ?> 
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0 text-gray-800">Election Results</h1>
+        <div class="d-flex align-items-center gap-2">
+            <div class="input-group input-group-sm" style="width: 200px;">
+                <select class="form-select form-select-sm" id="electionSelect" onchange="filterResults(this.value)">
+                    <option value="">All Elections</option>
+                    <?php foreach ($elections as $election): ?>
+                        <option value="<?php echo $election['id']; ?>" <?php echo $selected_election_id == $election['id'] ? 'selected' : ''; ?>>
+                            <?php echo htmlspecialchars($election['title']); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="row mb-4">
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-primary shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                                Total Voting Codes</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="totalCodes">0</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="bi bi-key fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-success shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
+                                Total Votes Cast</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="totalVotes">0</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="bi bi-check-circle fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-info shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
+                                Used Codes</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="usedCodes">0</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="bi bi-person-check fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-warning shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
+                                Voter Turnout</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">
+                                <span id="voterTurnout">0</span>%
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="bi bi-graph-up fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search and Controls Card -->
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex gap-2 align-items-center">
+                    <div class="input-group input-group-sm" style="width: 250px;">
+                        <input type="text" class="form-control" id="searchInput" placeholder="Search results...">
+                        <button class="btn btn-outline-secondary" type="button" onclick="searchResults()">
+                            <i class="bi bi-search"></i>
+                        </button>
+                    </div>
+                    <select class="form-select form-select-sm" id="itemsPerPage" style="width: auto;" onchange="changeItemsPerPage(this.value)">
+                        <option value="10">10 per page</option>
+                        <option value="25">25 per page</option>
+                        <option value="50">50 per page</option>
+                        <option value="100">100 per page</option>
+                    </select>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="printResults()">
+                        <i class="bi bi-printer"></i> Print
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-primary dropdown-toggle" type="button" id="exportDropdownInline" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-download"></i> Export
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="exportDropdownInline">
+                            <li><button class="dropdown-item" type="button" onclick="exportToPDF()">
+                                <i class="bi bi-file-pdf"></i> PDF
+                            </button></li>
+                            <li><button class="dropdown-item" type="button" onclick="exportToExcel()">
+                                <i class="bi bi-file-excel"></i> Excel
+                            </button></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Table -->
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">Election Results</h6>
+        </div>
+        <div class="card-body">
+            <?php if (empty($results)): ?>
+                <div class="text-center py-4">
+                    <p class="text-muted mb-0">No election results found</p>
+                </div>
+            <?php else: ?>
+                <?php
+                $current_election = null;
+                $current_position = null;
+                
+                foreach ($results as $result):
+                    if ($current_election !== $result['election_id']):
+                        if ($current_election !== null):
+                            echo '</div></div>'; // Close previous election
+                        endif;
+                        $current_election = $result['election_id'];
+                        echo '<div class="mb-4">';
+                        echo '<h4 class="mb-3">' . htmlspecialchars($result['election_title']) . '</h4>';
+                    endif;
+                    
+                    if ($current_position !== $result['position_id']):
+                        if ($current_position !== null):
+                            echo '</div>'; // Close previous position
+                        endif;
+                        $current_position = $result['position_id'];
+                        echo '<div class="mb-4">';
+                        echo '<h5 class="mb-3">' . htmlspecialchars($result['position_title']) . '</h5>';
+                    endif;
+                    
+                    // Calculate percentage
+                    $total_votes = array_sum(array_column(array_filter($results, function($r) use ($result) {
+                        return $r['position_id'] === $result['position_id'];
+                    }), 'vote_count'));
+                    
+                    $percentage = $total_votes > 0 ? round(($result['vote_count'] / $total_votes) * 100, 1) : 0;
+                    ?>
+                    
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="d-flex align-items-center">
+                                <?php if ($result['candidate_photo']): 
+                                    $image_path = "/school_voting/uploads/candidates/" . htmlspecialchars($result['candidate_photo']);
+                                    // Debug information
+                                    error_log("Image path: " . $image_path);
+                                    error_log("File exists: " . (file_exists($_SERVER['DOCUMENT_ROOT'] . $image_path) ? 'Yes' : 'No'));
+                                ?>
+                                    <img src="<?php echo $image_path; ?>" 
+                                         alt="<?php echo htmlspecialchars($result['candidate_name']); ?>"
+                                         class="rounded-circle me-2" width="40" height="40"
+                                         onerror="this.src='/school_voting/assets/img/default-avatar.png'">
+                                <?php else: ?>
+                                    <img src="/school_voting/assets/img/default-avatar.png" 
+                                         alt="Default Avatar"
+                                         class="rounded-circle me-2" width="40" height="40">
+                                <?php endif; ?>
+                                <div>
+                                    <h6 class="mb-0"><?php echo htmlspecialchars($result['candidate_name']); ?></h6>
+                                    <small class="text-muted"><?php echo $result['vote_count']; ?> votes</small>
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                <div class="h5 mb-0"><?php echo $percentage; ?>%</div>
+                                <small class="text-muted">of total votes</small>
+                            </div>
+                        </div>
+                        <div class="progress" style="height: 10px;">
+                            <div class="progress-bar" role="progressbar" 
+                                 style="width: <?php echo $percentage; ?>%"
+                                 aria-valuenow="<?php echo $percentage; ?>" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100"></div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+                
+                <?php if ($current_position !== null): ?>
+                    </div> <!-- Close last position -->
+                <?php endif; ?>
+                
+                <?php if ($current_election !== null): ?>
+                    </div> <!-- Close last election -->
+                <?php endif; ?>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<!-- Add this JavaScript at the bottom of the file, before the closing body tag -->
+<script nonce="<?php echo $_SESSION['csp_nonce']; ?>" src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<script nonce="<?php echo $_SESSION['csp_nonce']; ?>" src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/1.5.3/jspdf.min.js"></script>
+<script nonce="<?php echo $_SESSION['csp_nonce']; ?>" src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script nonce="<?php echo $_SESSION['csp_nonce']; ?>" src="/school_voting/admin/assets/js/results.js"></script>
+<script nonce="<?php echo $_SESSION['csp_nonce']; ?>">
+// Wait for the DOM to be fully loaded
+document.addEventListener('DOMContentLoaded', function() {
+    // Get the sidebar toggle button
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            // Toggle classes for sidebar collapse/expand
+            const sidebar = document.getElementById('sidebar');
+            const mainContent = document.getElementById('mainContent');
+            const navbar = document.querySelector('.navbar');
+            
+            sidebar.classList.toggle('collapsed');
+            mainContent.classList.toggle('expanded');
+            navbar.classList.toggle('expanded');
+            
+            // Store the state
+            localStorage.setItem('sidebarState', sidebar.classList.contains('collapsed'));
+        });
+        
+        // Check and apply stored sidebar state
+        const storedState = localStorage.getItem('sidebarState');
+        if (storedState === 'true') {
+            const sidebar = document.getElementById('sidebar');
+            const mainContent = document.getElementById('mainContent');
+            const navbar = document.querySelector('.navbar');
+            
+            sidebar.classList.add('collapsed');
+            mainContent.classList.add('expanded');
+            navbar.classList.add('expanded');
+        }
+    }
+
+    // Initialize table functionality
+    let currentPage = 1;
+    let itemsPerPage = 10;
+    let searchQuery = '';
+    
+    // Search functionality
+    document.getElementById('searchInput').addEventListener('input', function() {
+        searchQuery = this.value;
+        currentPage = 1;
+    });
+    
+    // Items per page functionality
+    document.getElementById('itemsPerPage').addEventListener('change', function() {
+        itemsPerPage = parseInt(this.value);
+        currentPage = 1;
+    });
+    
+    // Print functionality
+    window.printResults = function() {
+        const printWindow = window.open('', '_blank');
+        
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Election Results</title>
+                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+                <style>
+                    @media print {
+                        .card { margin-bottom: 1rem; }
+                        .progress { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+                    }
+                </style>
+            </head>
+            <body class="p-4">
+                <h2 class="mb-4">Election Results</h2>
+                ${document.querySelector('.card-body').outerHTML}
+            </body>
+            </html>
+        `);
+        
+        printWindow.document.close();
+        printWindow.focus();
+        
+        printWindow.onload = function() {
+            printWindow.print();
+            printWindow.close();
+        };
+    };
+
+    // Export to PDF functionality
+    window.exportToPDF = function() {
+        const element = document.querySelector('.card-body');
+        html2canvas(element).then(canvas => {
+            const imgData = canvas.toDataURL('image/png');
+            const pdf = new jsPDF('l', 'mm', 'a4');
+            const imgProps = pdf.getImageProperties(imgData);
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+            
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            pdf.save('election_results.pdf');
+        });
+    };
+
+    // Export to Excel functionality
+    window.exportToExcel = function() {
+        const results = <?php echo json_encode($results); ?>;
+        let csv = [
+            ['Election', 'Position', 'Candidate', 'Votes', 'Percentage']
+        ];
+        
+        results.forEach(result => {
+            const total_votes = results
+                .filter(r => r.position_id === result.position_id)
+                .reduce((sum, r) => sum + parseInt(r.vote_count), 0);
+            const percentage = total_votes > 0 ? ((result.vote_count / total_votes) * 100).toFixed(1) : '0.0';
+            
+            csv.push([
+                result.election_title,
+                result.position_title,
+                result.candidate_name,
+                result.vote_count,
+                percentage + '%'
+            ]);
+        });
+        
+        const csvContent = csv.map(row => {
+            return row.map(cell => {
+                cell = cell.toString();
+                if (cell.includes(',') || cell.includes('"')) {
+                    cell = '"' + cell.replace(/"/g, '""') + '"';
+                }
+                return cell;
+            }).join(',');
+        }).join('\n');
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'election_results.csv');
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+});
+
+// Function to filter results by election
+function filterResults(electionId) {
+    window.location.href = 'results.php' + (electionId ? '?election_id=' + electionId : '');
+}
+</script>
+</body>
+</html> 
