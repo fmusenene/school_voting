@@ -110,7 +110,25 @@ $elections = $conn->query($elections_sql)->fetchAll(PDO::FETCH_ASSOC);
 // Get selected election ID from URL
 $selected_election_id = isset($_GET['election_id']) ? (int)$_GET['election_id'] : null;
 
-// Get voting codes with election and usage information
+// Pagination settings
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$items_per_page = isset($_GET['items_per_page']) ? (int)$_GET['items_per_page'] : 10;
+$offset = ($page - 1) * $items_per_page;
+
+// Get total number of records for pagination
+$count_sql = "SELECT COUNT(DISTINCT vc.id) as total FROM voting_codes vc";
+if ($selected_election_id) {
+    $count_sql .= " WHERE vc.election_id = ?";
+    $count_stmt = $conn->prepare($count_sql);
+    $count_stmt->execute([$selected_election_id]);
+} else {
+    $count_stmt = $conn->prepare($count_sql);
+    $count_stmt->execute();
+}
+$total_records = $count_stmt->fetchColumn();
+$total_pages = ceil($total_records / $items_per_page);
+
+// Modify the main query to include pagination
 $voting_codes_sql = "SELECT 
     vc.*, 
     e.title as election_title,
@@ -123,34 +141,41 @@ $voting_codes_sql = "SELECT
     END as status
 FROM voting_codes vc
 LEFT JOIN elections e ON vc.election_id = e.id
-LEFT JOIN votes v ON vc.id = v.voting_code_id
-GROUP BY vc.id, vc.code, vc.election_id, e.title, e.status
-ORDER BY vc.created_at DESC";
+LEFT JOIN votes v ON vc.id = v.voting_code_id";
 
+// Add WHERE clause if election is selected
 if ($selected_election_id) {
-    $voting_codes_sql = "SELECT 
-        vc.*, 
-        e.title as election_title,
-        e.status as election_status,
-        MAX(v.created_at) as used_at,
-        (SELECT COUNT(*) FROM votes WHERE voting_code_id = vc.id) as vote_count,
-        CASE 
-            WHEN EXISTS (SELECT 1 FROM votes WHERE voting_code_id = vc.id) THEN 'Used'
-            ELSE 'Available'
-        END as status
-    FROM voting_codes vc
-    LEFT JOIN elections e ON vc.election_id = e.id
-    LEFT JOIN votes v ON vc.id = v.voting_code_id
-    WHERE vc.election_id = ?
-    GROUP BY vc.id, vc.code, vc.election_id, e.title, e.status
-    ORDER BY vc.created_at DESC";
-    $stmt = $conn->prepare($voting_codes_sql);
-    $stmt->execute([$selected_election_id]);
-} else {
-    $stmt = $conn->prepare($voting_codes_sql);
-    $stmt->execute();
+    $voting_codes_sql .= " WHERE vc.election_id = :election_id";
 }
-$voting_codes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+$voting_codes_sql .= " GROUP BY vc.id, vc.code, vc.election_id, e.title, e.status
+ORDER BY vc.created_at DESC
+LIMIT :limit OFFSET :offset";
+
+try {
+    $stmt = $conn->prepare($voting_codes_sql);
+    
+    // Bind parameters using named parameters
+    if ($selected_election_id) {
+        $stmt->bindValue(':election_id', $selected_election_id, PDO::PARAM_INT);
+    }
+    $stmt->bindValue(':limit', (int)$items_per_page, PDO::PARAM_INT);
+    $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
+    
+    // Execute the query
+    $stmt->execute();
+    $voting_codes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Debug information
+    error_log("Query executed successfully");
+    error_log("Number of records returned: " . count($voting_codes));
+    
+} catch (PDOException $e) {
+    error_log("Query execution error: " . $e->getMessage());
+    error_log("SQL Query: " . $voting_codes_sql);
+    $error = "Error loading voting codes: " . $e->getMessage();
+    $voting_codes = [];
+}
 
 // Get statistics
 $stats_sql = "SELECT 
@@ -371,6 +396,27 @@ $unused_percentage = $stats['total_codes'] > 0 ?
                     </button>
                 </div>
             </form>
+            <!-- Pagination -->
+            <div class="d-flex justify-content-between align-items-center mt-4">
+                <div class="text-muted">
+                    Showing <?php echo min($offset + 1, $total_records); ?> to <?php echo min($offset + $items_per_page, $total_records); ?> of <?php echo $total_records; ?> entries
+                </div>
+                <nav aria-label="Page navigation">
+                    <ul class="pagination pagination-sm mb-0">
+                        <li class="page-item <?php echo ($page <= 1) ? 'disabled' : ''; ?>">
+                            <a class="page-link" href="?page=<?php echo ($page - 1); ?>&items_per_page=<?php echo $items_per_page; ?><?php echo $selected_election_id ? '&election_id=' . $selected_election_id : ''; ?>">Previous</a>
+                        </li>
+                        <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+                            <li class="page-item <?php echo ($page == $i) ? 'active' : ''; ?>">
+                                <a class="page-link" href="?page=<?php echo $i; ?>&items_per_page=<?php echo $items_per_page; ?><?php echo $selected_election_id ? '&election_id=' . $selected_election_id : ''; ?>"><?php echo $i; ?></a>
+                            </li>
+                        <?php endfor; ?>
+                        <li class="page-item <?php echo ($page >= $total_pages) ? 'disabled' : ''; ?>">
+                            <a class="page-link" href="?page=<?php echo ($page + 1); ?>&items_per_page=<?php echo $items_per_page; ?><?php echo $selected_election_id ? '&election_id=' . $selected_election_id : ''; ?>">Next</a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
         </div>
     </div>
 </div>
@@ -439,7 +485,7 @@ code {
 }
 </style>
 
-<script>
+<script nonce="<?php echo $_SESSION['csp_nonce']; ?>">
 document.querySelector('.select-all').addEventListener('change', function() {
     document.querySelectorAll('.code-checkbox').forEach(checkbox => {
         checkbox.checked = this.checked;
@@ -577,9 +623,10 @@ function changePage(page) {
 
 // Function to change items per page
 function changeItemsPerPage(value) {
-    itemsPerPage = parseInt(value);
-    currentPage = 1;
-    loadCodes();
+    const urlParams = new URLSearchParams(window.location.search);
+    urlParams.set('items_per_page', value);
+    urlParams.set('page', 1); // Reset to first page when changing items per page
+    window.location.href = '?' + urlParams.toString();
 }
 
 // Function to handle search
@@ -679,11 +726,14 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function filterCodes(electionId) {
+    const urlParams = new URLSearchParams(window.location.search);
     if (electionId) {
-        window.location.href = `voting_codes.php?election_id=${electionId}`;
+        urlParams.set('election_id', electionId);
     } else {
-        window.location.href = 'voting_codes.php';
+        urlParams.delete('election_id');
     }
+    urlParams.set('page', 1); // Reset to first page when filtering
+    window.location.href = '?' + urlParams.toString();
 }
 
 function confirmDelete() {
