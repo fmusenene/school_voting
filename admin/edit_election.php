@@ -1,85 +1,58 @@
 <?php
-session_start();
 require_once "../config/database.php";
+session_start();
 
 // Check if admin is logged in
 if (!isset($_SESSION['admin_id'])) {
-    echo json_encode([
-        'success' => false,
-        'message' => 'Unauthorized access'
-    ]);
-    exit();
-}
-
-// Check if it's a POST request
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    echo json_encode([
-        'success' => false,
-        'message' => 'Invalid request method'
-    ]);
+    header('Content-Type: application/json');
+    echo json_encode(['success' => false, 'message' => 'Unauthorized access']);
     exit();
 }
 
 // Get JSON data from request body
-$json = file_get_contents('php://input');
-$data = json_decode($json, true);
-
-if (!$data) {
-    echo json_encode([
-        'success' => false,
-        'message' => 'Invalid JSON data'
-    ]);
-    exit();
-}
+$data = json_decode(file_get_contents('php://input'), true);
 
 // Validate required fields
-$required_fields = ['id', 'title', 'start_date', 'end_date', 'status'];
-foreach ($required_fields as $field) {
-    if (!isset($data[$field]) || empty($data[$field])) {
-        echo json_encode([
-            'success' => false,
-            'message' => ucfirst(str_replace('_', ' ', $field)) . ' is required'
-        ]);
-        exit();
-    }
-}
-
-$election_id = (int)$data['id'];
-$title = trim($data['title']);
-$description = trim($data['description']);
-$start_date = $data['start_date'];
-$end_date = $data['end_date'];
-$status = $data['status'];
-
-// Validate dates
-if (strtotime($end_date) <= strtotime($start_date)) {
-    echo json_encode([
-        'success' => false,
-        'message' => 'End date must be after start date'
-    ]);
+if (!isset($data['id']) || !isset($data['title']) || !isset($data['start_date']) || !isset($data['end_date']) || !isset($data['status'])) {
+    header('Content-Type: application/json');
+    echo json_encode(['success' => false, 'message' => 'Missing required fields']);
     exit();
 }
 
 try {
+    // Prepare the update query
     $sql = "UPDATE elections 
-            SET title = ?, description = ?, start_date = ?, end_date = ?, status = ? 
-            WHERE id = ?";
+            SET title = :title, 
+                description = :description, 
+                start_date = :start_date, 
+                end_date = :end_date, 
+                status = :status
+            WHERE id = :id";
+    
     $stmt = $conn->prepare($sql);
     
-    if ($stmt->execute([$title, $description, $start_date, $end_date, $status, $election_id])) {
+    // Bind parameters
+    $stmt->bindParam(':id', $data['id'], PDO::PARAM_INT);
+    $stmt->bindParam(':title', $data['title'], PDO::PARAM_STR);
+    $stmt->bindParam(':description', $data['description'], PDO::PARAM_STR);
+    $stmt->bindParam(':start_date', $data['start_date'], PDO::PARAM_STR);
+    $stmt->bindParam(':end_date', $data['end_date'], PDO::PARAM_STR);
+    $stmt->bindParam(':status', $data['status'], PDO::PARAM_STR);
+    
+    // Execute the query
+    if ($stmt->execute()) {
+        header('Content-Type: application/json');
         echo json_encode([
-            'success' => true,
+            'success' => true, 
             'message' => 'Election updated successfully'
         ]);
     } else {
-        echo json_encode([
-            'success' => false,
-            'message' => 'Error updating election'
-        ]);
+        throw new Exception('Failed to update election');
     }
-} catch (PDOException $e) {
+} catch (Exception $e) {
+    header('Content-Type: application/json');
     echo json_encode([
-        'success' => false,
-        'message' => 'Database error: ' . $e->getMessage()
+        'success' => false, 
+        'message' => 'Error updating election: ' . $e->getMessage()
     ]);
 } 

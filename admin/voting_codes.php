@@ -173,7 +173,7 @@ try {
     
     // Execute the query
     $stmt->execute();
-    $voting_codes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$voting_codes = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     // Debug information
     error_log("Query executed successfully");
@@ -203,9 +203,9 @@ try {
         $stats_stmt->bindValue(':election_id', $selected_election_id, PDO::PARAM_INT);
     }
     $stats_stmt->execute();
-    $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
+$stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
 
-    // Calculate unused codes
+// Calculate unused codes
     $stats['unused_codes'] = $stats['total_codes'] - ($stats['used_codes'] ?? 0);
 
     // Debug logging
@@ -288,7 +288,7 @@ $unused_percentage = $stats['total_codes'] > 0 ?
                             <i class="bi bi-check-circle-fill text-success fs-4"></i>
                         </div>
                         <div>
-                            <h6 class="card-title text-muted mb-1">Codes Used</h6>
+                            <h6 class="card-title text-muted mb-1">Used Codes</h6>
                             <p class="card-text display-6 mb-0"><?php echo number_format($stats['used_codes']); ?></p>
                         </div>
                     </div>

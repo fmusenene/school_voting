@@ -689,6 +689,112 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
 <!-- Add this JavaScript at the bottom of the file, before the closing body tag -->
 <script>
+// Function to show notifications
+function showNotification(message, type = 'success') {
+    const overlay = document.getElementById('notificationOverlay');
+    const container = document.getElementById('notificationContainer');
+    
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    
+    overlay.classList.add('show');
+    container.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+        if (container.children.length === 0) {
+            overlay.classList.remove('show');
+        }
+    }, 3000);
+}
+
+// Function to get candidate data and populate edit modal
+function editCandidate(id) {
+    fetch(`get_candidate.php?id=${id}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const candidate = data.candidate;
+                document.getElementById('edit_candidate_id').value = candidate.id;
+                document.getElementById('edit_name').value = candidate.name;
+                document.getElementById('edit_description').value = candidate.description || '';
+                document.getElementById('edit_position_id').value = candidate.position_id;
+                
+                // Show the modal
+                const modal = new bootstrap.Modal(document.getElementById('editCandidateModal'));
+                modal.show();
+            } else {
+                showNotification(data.message, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification('Error fetching candidate data', 'error');
+        });
+}
+
+// Function to update candidate
+function updateCandidate() {
+    const form = document.getElementById('editCandidateForm');
+    const formData = new FormData(form);
+    
+    // Show loading state
+    const submitButton = document.querySelector('#editCandidateModal .btn-primary');
+    const originalText = submitButton.innerHTML;
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Updating...';
+    
+    fetch('edit_candidate.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Show success message
+            showNotification(data.message, 'success');
+            
+            // Update the table row
+            const candidate = data.candidate;
+            const row = document.querySelector(`tr[data-id="${candidate.id}"]`);
+            if (row) {
+                row.querySelector('td:nth-child(3)').textContent = candidate.name;
+                row.querySelector('td:nth-child(4)').textContent = candidate.position_title;
+                row.querySelector('td:nth-child(5)').textContent = candidate.election_title;
+                
+                if (candidate.photo) {
+                    const img = row.querySelector('td:nth-child(2) img');
+                    if (img) {
+                        img.src = '../' + candidate.photo;
+                    }
+                }
+            }
+            
+            // Close the modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('editCandidateModal'));
+            modal.hide();
+            
+            // Reload the page after a short delay
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+        } else {
+            showNotification(data.message, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showNotification('Error updating candidate', 'error');
+    })
+    .finally(() => {
+        // Reset button state
+        submitButton.disabled = false;
+        submitButton.innerHTML = originalText;
+    });
+}
+
+// Add event listeners for select all checkbox
 document.querySelector('.select-all').addEventListener('change', function() {
     document.querySelectorAll('.candidate-checkbox').forEach(checkbox => {
         checkbox.checked = this.checked;
@@ -732,50 +838,32 @@ document.getElementById('addCandidateForm').addEventListener('submit', function(
     
     fetch(window.location.href, {
         method: 'POST',
-        body: formData,
-        headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-        }
+        body: formData
     })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error('Network response was not ok');
-        }
-        return response.json();
-    })
+    .then(response => response.json())
     .then(data => {
         if (data.success) {
             // Show success message
             showNotification(data.message, 'success');
             
-            // Close modal and reset form
-            const modal = document.getElementById('newCandidateModal');
-            const bsModal = bootstrap.Modal.getInstance(modal);
-            if (bsModal) {
-                bsModal.hide();
-            } else {
-                // If Bootstrap modal instance is not available, manually close the modal
-                modal.style.display = 'none';
-                modal.classList.remove('show');
-                document.body.classList.remove('modal-open');
-                const modalBackdrop = document.querySelector('.modal-backdrop');
-                if (modalBackdrop) {
-                    modalBackdrop.remove();
-                }
-            }
+            // Close the modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('newCandidateModal'));
+            modal.hide();
+            
+            // Reset the form
             this.reset();
             
-            // Refresh the page after a short delay
+            // Reload the page after a short delay
             setTimeout(() => {
                 window.location.reload();
-            }, 1000);
+            }, 1500);
         } else {
-            throw new Error(data.message || 'Error creating candidate');
+            showNotification(data.message, 'error');
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        showNotification(error.message || 'An error occurred while adding the candidate.', 'error');
+        showNotification('Error adding candidate', 'error');
     })
     .finally(() => {
         // Reset button state
@@ -784,145 +872,27 @@ document.getElementById('addCandidateForm').addEventListener('submit', function(
     });
 });
 
-// Edit candidate function
-function editCandidate(candidateId) {
-    // Fetch candidate data
-    fetch(`get_candidate.php?id=${candidateId}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                document.getElementById('edit_candidate_id').value = data.candidate.id;
-                document.getElementById('edit_name').value = data.candidate.name;
-                document.getElementById('edit_description').value = data.candidate.description;
-                document.getElementById('edit_position_id').value = data.candidate.position_id;
-                
-                // Show modal using Bootstrap 5
-                const modal = new bootstrap.Modal(document.getElementById('editCandidateModal'));
-                modal.show();
-            } else {
-                showNotification(data.message || 'Error fetching candidate data', 'error');
-            }
-        })
-        .catch(error => {
-            showNotification('Error fetching candidate data', 'error');
-        });
+// Function to delete candidate
+function deleteCandidate(id) {
+    if (confirm('Are you sure you want to delete this candidate?')) {
+        fetch('delete_candidate.php?id=' + id)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification(data.message, 'success');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+                } else {
+                    showNotification(data.message, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showNotification('Error deleting candidate', 'error');
+            });
+    }
 }
-
-// Update candidate function
-function updateCandidate() {
-    const formData = new FormData(document.getElementById('editCandidateForm'));
-    
-    fetch('update_candidate.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showNotification('Candidate updated successfully');
-            // Hide modal using Bootstrap 5
-            const modal = bootstrap.Modal.getInstance(document.getElementById('editCandidateModal'));
-            modal.hide();
-            setTimeout(() => {
-                window.location.reload();
-            }, 1000);
-        } else {
-            showNotification(data.message || 'Error updating candidate', 'error');
-        }
-    })
-    .catch(error => {
-        showNotification('Error updating candidate', 'error');
-    });
-}
-
-let candidateToDelete = null;
-
-// Update the delete candidate function
-function deleteCandidate(candidateId) {
-    candidateToDelete = candidateId;
-    document.getElementById('confirmationDialog').classList.add('show');
-}
-
-function closeConfirmationDialog() {
-    document.getElementById('confirmationDialog').classList.remove('show');
-    candidateToDelete = null;
-}
-
-function confirmDelete() {
-    if (!candidateToDelete) return;
-    
-    // Show loading state
-    const deleteButton = document.querySelector('#confirmationDialog .btn-danger');
-    const originalText = deleteButton.innerHTML;
-    deleteButton.disabled = true;
-    deleteButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Deleting...';
-    
-    fetch('delete_candidate.php', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: `candidate_id=${candidateToDelete}`
-    })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error('Network response was not ok');
-        }
-        return response.json();
-    })
-    .then(data => {
-        if (data.success) {
-            showNotification('Candidate deleted successfully', 'success');
-            setTimeout(() => {
-                window.location.reload();
-            }, 1000);
-        } else {
-            throw new Error(data.message || 'Error deleting candidate');
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showNotification(error.message || 'Error deleting candidate', 'error');
-    })
-    .finally(() => {
-        // Reset button state
-        deleteButton.disabled = false;
-        deleteButton.innerHTML = originalText;
-        closeConfirmationDialog();
-    });
-}
-
-// Show notification function
-function showNotification(message, type) {
-    const overlay = document.getElementById('notificationOverlay');
-    const container = document.getElementById('notificationContainer');
-    
-    // Create notification element
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    notification.textContent = message;
-    
-    // Clear previous notifications
-    container.innerHTML = '';
-    
-    // Add new notification
-    container.appendChild(notification);
-    
-    // Show overlay and notification
-    overlay.classList.add('show');
-    
-    // Hide after 3 seconds
-    setTimeout(() => {
-        overlay.classList.remove('show');
-        setTimeout(() => {
-            container.innerHTML = '';
-        }, 300);
-    }, 3000);
-}
-
-// Initialize the modal
-const newCandidateModal = new bootstrap.Modal(document.getElementById('newCandidateModal'));
 </script>
 
 <!-- Add this HTML right after the notification container -->
