@@ -15,23 +15,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $sql = "SELECT id, username, password FROM admins WHERE username = ?";
     $stmt = $conn->prepare($sql);
     $stmt->execute([$username]);
-
-    try {
-        $row = $stmt->fetch();
-    } catch (PDOException $e) {
-        error_log("Fetch mode failed: " . $e->getMessage());
-        die("Error fetching data: " . $e->getMessage());
-    }
-
-
     
-    if ($row ) {
- 
+    if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        if (password_verify($password, $row['password'])) {
             $_SESSION['admin_id'] = $row['id'];
             $_SESSION['admin_username'] = $row['username'];
             header("Location: /school_voting/admin/index.php");
             exit();
- 
+        }
     }
     $error = "Invalid username or password.";
 }
