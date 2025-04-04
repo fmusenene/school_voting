@@ -16,56 +16,60 @@ $elections_sql = "SELECT * FROM elections ORDER BY title";
 $elections = $conn->query($elections_sql)->fetchAll(PDO::FETCH_ASSOC);
 
 // Get selected election ID from URL
-$selected_election_id = isset($_GET['election_id']) && !empty($_GET['election_id']) ? (int)$_GET['election_id'] : null;
+$selected_election_id = isset($_GET['election_id']) ? (int)$_GET['election_id'] : null;
 
 // Get election results
 $results_sql = "SELECT 
     e.id as election_id,
-    e.title as election_title,
+    COALESCE(e.title, 'Untitled Election') as election_title,
     p.id as position_id,
-    p.title as position_title,
+    COALESCE(p.title, 'Untitled Position') as position_title,
     c.id as candidate_id,
-    c.name as candidate_name,
+    COALESCE(c.name, 'Unnamed Candidate') as candidate_name,
     c.photo as candidate_photo,
-    COUNT(DISTINCT v.id) as vote_count
+    COUNT(v.id) as vote_count
 FROM elections e
 LEFT JOIN positions p ON e.id = p.election_id
 LEFT JOIN candidates c ON p.id = c.position_id
 LEFT JOIN votes v ON c.id = v.candidate_id
-WHERE 1=1 ";
+WHERE 1=1";
+
+$params = [];
 
 if ($selected_election_id) {
-    $results_sql .= " AND e.id = :election_id";
+    $results_sql .= " AND e.id = ?";
+    $params[] = $selected_election_id;
 }
 
 $results_sql .= " GROUP BY e.id, e.title, p.id, p.title, c.id, c.name, c.photo
-                 ORDER BY " . ($selected_election_id ? "p.title ASC" : "e.title ASC, p.title ASC") . ", vote_count DESC";
+                 ORDER BY e.title, p.title, vote_count DESC";
 
 $stmt = $conn->prepare($results_sql);
 if ($selected_election_id) {
-    $stmt->bindParam(':election_id', $selected_election_id, PDO::PARAM_INT);
+    $stmt->execute([$selected_election_id]);
+} else {
+    $stmt->execute();
 }
-$stmt->execute();
 $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get statistics
 $stats_sql = "SELECT 
-    (SELECT COUNT(*) FROM voting_codes WHERE " . ($selected_election_id ? "election_id = :election_id1" : "1=1") . ") as total_codes,
-    (SELECT COUNT(DISTINCT v.id) FROM votes v 
+    (SELECT COUNT(*) FROM voting_codes WHERE 1=1 " . ($selected_election_id ? "AND election_id = ?" : "") . ") as total_codes,
+    (SELECT COUNT(*) FROM votes v 
      INNER JOIN candidates c ON v.candidate_id = c.id 
      INNER JOIN positions p ON c.position_id = p.id 
-     WHERE " . ($selected_election_id ? "p.election_id = :election_id2" : "1=1") . ") as total_votes,
+     WHERE 1=1 " . ($selected_election_id ? "AND p.election_id = ?" : "") . ") as total_votes,
     (SELECT COUNT(*) FROM voting_codes 
-     WHERE is_used = 1 " . ($selected_election_id ? "AND election_id = :election_id3" : "") . ") as used_codes";
+     WHERE is_used = 1 " . ($selected_election_id ? "AND election_id = ?" : "") . ") as used_codes";
 
-$stmt = $conn->prepare($stats_sql);
+$stats_params = [];
 if ($selected_election_id) {
-    $stmt->bindParam(':election_id1', $selected_election_id, PDO::PARAM_INT);
-    $stmt->bindParam(':election_id2', $selected_election_id, PDO::PARAM_INT);
-    $stmt->bindParam(':election_id3', $selected_election_id, PDO::PARAM_INT);
+    $stats_params = [$selected_election_id, $selected_election_id, $selected_election_id];
 }
-$stmt->execute();
-$stats = $stmt->fetch(PDO::FETCH_ASSOC);
+
+$stats_stmt = $conn->prepare($stats_sql);
+$stats_stmt->execute($stats_params);
+$stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
 
 // Calculate voter turnout
 $stats['voter_turnout'] = $stats['total_codes'] > 0 ? 
@@ -73,7 +77,7 @@ $stats['voter_turnout'] = $stats['total_codes'] > 0 ?
 
 // Add debug logging
 error_log("Statistics Query: " . $stats_sql);
-error_log("Statistics Params: " . print_r($stmt->errorInfo(), true));
+error_log("Statistics Params: " . print_r($stats_params, true));
 error_log("Statistics Results: " . print_r($stats, true));
 
 // Add animation to statistics cards
@@ -89,6 +93,14 @@ document.addEventListener('DOMContentLoaded', function() {
         useGrouping: true
     };
 
+    // Debug values in console
+    console.log('Statistics:', {
+        totalCodes: <?php echo (int)$stats['total_codes']; ?>,
+        totalVotes: <?php echo (int)$stats['total_votes']; ?>,
+        usedCodes: <?php echo (int)$stats['used_codes']; ?>,
+        voterTurnout: <?php echo (float)$stats['voter_turnout']; ?>
+    });
+
     // Create and start the counters
     new CountUp('totalCodes', <?php echo (int)$stats['total_codes']; ?>, options).start();
     new CountUp('totalVotes', <?php echo (int)$stats['total_votes']; ?>, options).start();
@@ -98,6 +110,17 @@ document.addEventListener('DOMContentLoaded', function() {
         decimals: 1,
         suffix: '%'
     }).start();
+
+    // Add hover effect for cards
+    document.querySelectorAll('.card').forEach(card => {
+        card.addEventListener('mouseenter', function() {
+            this.querySelector('.pulse-icon').style.animationPlayState = 'paused';
+        });
+        
+        card.addEventListener('mouseleave', function() {
+            this.querySelector('.pulse-icon').style.animationPlayState = 'running';
+        });
+    });
 });
 </script>
 
@@ -144,8 +167,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     /* Regular cards and other styles */
     .card {
-        position: relative;
-        background: linear-gradient(45deg, var(--bs-white) 0%, var(--bs-light) 100%);
+        background: #fff;
     }
 
     .border-left-primary { border-left: 4px solid #4e73df !important; }
@@ -164,7 +186,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     .progress-bar {
-        transition: width 1.5s ease-in-out;
         background-color: #4e73df;
     }
 
@@ -186,23 +207,22 @@ document.addEventListener('DOMContentLoaded', function() {
         color: #dddfeb;
     }
 
-    .card.border-left-primary .pulse-icon { color: #4e73df; }
-    .card.border-left-success .pulse-icon { color: #1cc88a; }
-    .card.border-left-info .pulse-icon { color: #36b9cc; }
-    .card.border-left-warning .pulse-icon { color: #f6c23e; }
+    .stats-card.border-left-primary .pulse-icon { color: #4e73df; }
+    .stats-card.border-left-success .pulse-icon { color: #1cc88a; }
+    .stats-card.border-left-info .pulse-icon { color: #36b9cc; }
+    .stats-card.border-left-warning .pulse-icon { color: #f6c23e; }
 </style>
 
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1 class="h3 mb-0 text-gray-800">Election Results</h1>
         <div class="d-flex align-items-center gap-2">
-            <div class="input-group input-group-sm" style="width: 250px;">
+            <div class="input-group input-group-sm" style="width: 200px;">
                 <select class="form-select form-select-sm" id="electionSelect" onchange="filterResults(this.value)">
                     <option value="">All Elections</option>
                     <?php foreach ($elections as $election): ?>
-                        <option value="<?php echo $election['id']; ?>" 
-                                <?php echo $selected_election_id == $election['id'] ? 'selected' : ''; ?>>
-                            <?php echo htmlspecialchars($election['title'] ?? ''); ?>
+                        <option value="<?php echo $election['id']; ?>" <?php echo $selected_election_id == $election['id'] ? 'selected' : ''; ?>>
+                            <?php echo htmlspecialchars($election['title']); ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
@@ -213,20 +233,16 @@ document.addEventListener('DOMContentLoaded', function() {
     <!-- Statistics Cards -->
     <div class="row mb-4">
         <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-primary shadow h-100 py-2 stats-card">
+            <div class="card stats-card border-left-primary shadow h-100 py-2 animate-card">
                 <div class="card-body">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
                             <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
-                                <?php echo $selected_election_id ? 'Election Voting Codes' : 'Total Voting Codes'; ?></div>
-                            <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                <span id="totalCodes"><?php echo number_format($stats['total_codes']); ?></span>
-                            </div>
+                                Total Voting Codes</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="totalCodes">0</div>
                         </div>
                         <div class="col-auto">
-                            <div class="icon-container">
-                                <i class="bi bi-key fa-2x text-gray-300"></i>
-                            </div>
+                            <i class="bi bi-key fa-2x text-gray-300 pulse-icon"></i>
                         </div>
                     </div>
                 </div>
@@ -234,20 +250,16 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
 
         <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-success shadow h-100 py-2 stats-card">
+            <div class="card stats-card border-left-success shadow h-100 py-2 animate-card">
                 <div class="card-body">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
                             <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
-                                <?php echo $selected_election_id ? 'Election Votes Cast' : 'Total Votes Cast'; ?></div>
-                            <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                <span id="totalVotes"><?php echo number_format($stats['total_votes']); ?></span>
-                            </div>
+                                Total Votes Cast</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="totalVotes">0</div>
                         </div>
                         <div class="col-auto">
-                            <div class="icon-container">
-                                <i class="bi bi-check-circle fa-2x text-gray-300"></i>
-                            </div>
+                            <i class="bi bi-check-circle fa-2x text-gray-300 pulse-icon"></i>
                         </div>
                     </div>
                 </div>
@@ -255,20 +267,16 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
 
         <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-info shadow h-100 py-2 stats-card">
+            <div class="card stats-card border-left-info shadow h-100 py-2 animate-card">
                 <div class="card-body">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
                             <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
-                                <?php echo $selected_election_id ? 'Election Used Codes' : 'Total Used Codes'; ?></div>
-                            <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                <span id="usedCodes"><?php echo number_format($stats['used_codes']); ?></span>
-                            </div>
+                                Used Codes</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="usedCodes">0</div>
                         </div>
                         <div class="col-auto">
-                            <div class="icon-container">
-                                <i class="bi bi-person-check fa-2x text-gray-300"></i>
-                            </div>
+                            <i class="bi bi-person-check fa-2x text-gray-300 pulse-icon"></i>
                         </div>
                     </div>
                 </div>
@@ -276,20 +284,18 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
 
         <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-warning shadow h-100 py-2 stats-card">
+            <div class="card stats-card border-left-warning shadow h-100 py-2 animate-card">
                 <div class="card-body">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
                             <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
-                                <?php echo $selected_election_id ? 'Election Voter Turnout' : 'Overall Voter Turnout'; ?></div>
+                                Voter Turnout</div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                <span id="voterTurnout"><?php echo number_format($stats['voter_turnout'], 1); ?></span>%
+                                <span id="voterTurnout">0</span>%
                             </div>
                         </div>
                         <div class="col-auto">
-                            <div class="icon-container">
-                                <i class="bi bi-graph-up fa-2x text-gray-300"></i>
-                            </div>
+                            <i class="bi bi-graph-up fa-2x text-gray-300 pulse-icon"></i>
                         </div>
                     </div>
                 </div>
@@ -340,19 +346,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <!-- Results Table -->
     <div class="card shadow mb-4">
         <div class="card-header py-3">
-            <h6 class="m-0 font-weight-bold text-primary">
-                <?php 
-                if ($selected_election_id) {
-                    $selected_election = array_filter($elections, function($e) use ($selected_election_id) {
-                        return $e['id'] == $selected_election_id;
-                    });
-                    $selected_election = reset($selected_election);
-                    echo $selected_election ? htmlspecialchars($selected_election['title']) . ' Results' : 'Election Results';
-                } else {
-                    echo 'All Elections Results';
-                }
-                ?>
-            </h6>
+            <h6 class="m-0 font-weight-bold text-primary">Election Results</h6>
         </div>
         <div class="card-body">
             <?php if (empty($results)): ?>
@@ -365,14 +359,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 $current_position = null;
                 
                 foreach ($results as $result):
-                    // Only show election header if showing all elections
-                    if (!$selected_election_id && $current_election !== $result['election_id']):
+                    if ($current_election !== $result['election_id']):
                         if ($current_election !== null):
                             echo '</div></div>'; // Close previous election
                         endif;
                         $current_election = $result['election_id'];
                         echo '<div class="mb-4">';
-                        echo '<h4 class="mb-3">' . htmlspecialchars($result['election_title'] ?? '') . '</h4>';
+                        echo '<h4 class="mb-3">' . htmlspecialchars($result['election_title'] ?? 'Untitled Election') . '</h4>';
                     endif;
                     
                     if ($current_position !== $result['position_id']):
@@ -381,30 +374,33 @@ document.addEventListener('DOMContentLoaded', function() {
                         endif;
                         $current_position = $result['position_id'];
                         echo '<div class="mb-4">';
-                        echo '<h5 class="mb-3">' . htmlspecialchars($result['position_title'] ?? '') . '</h5>';
+                        echo '<h5 class="mb-3">' . htmlspecialchars($result['position_title'] ?? 'Untitled Position') . '</h5>';
                     endif;
                     
-                    // Calculate percentage for this position
-                    $position_votes = array_filter($results, function($r) use ($result) {
+                    // Calculate percentage
+                    $total_votes = array_sum(array_column(array_filter($results, function($r) use ($result) {
                         return $r['position_id'] === $result['position_id'];
-                    });
-                    $total_votes = array_sum(array_column($position_votes, 'vote_count'));
+                    }), 'vote_count'));
+                    
                     $percentage = $total_votes > 0 ? round(($result['vote_count'] / $total_votes) * 100, 1) : 0;
                     ?>
                     
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <div class="d-flex align-items-center">
-                                <?php if (!empty($result['candidate_photo'])): 
+                                <?php if ($result['candidate_photo']): 
                                     $image_path = "../" . htmlspecialchars($result['candidate_photo']);
+                                    // Debug information
+                                    error_log("Image path: " . $image_path);
+                                    error_log("File exists: " . (file_exists($_SERVER['DOCUMENT_ROOT'] . "/school_voting/" . $result['candidate_photo']) ? 'Yes' : 'No'));
                                 ?>
                                     <img src="<?php echo $image_path; ?>" 
-                                         alt="<?php echo htmlspecialchars($result['candidate_name'] ?? ''); ?>"
+                                         alt="<?php echo htmlspecialchars($result['candidate_name'] ?? 'Candidate'); ?>"
                                          class="rounded-circle me-2" width="40" height="40"
                                          onerror="this.src='../assets/img/default-avatar.svg'">
                                 <?php else: ?>
                                     <img src="../assets/img/default-avatar.svg" 
-                                         alt="Default Avatar"
+                                         alt="<?php echo htmlspecialchars($result['candidate_name'] ?? 'Default Avatar'); ?>"
                                          class="rounded-circle me-2" width="40" height="40">
                                 <?php endif; ?>
                                 <div>
@@ -431,7 +427,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div> <!-- Close last position -->
                 <?php endif; ?>
                 
-                <?php if ($current_election !== null && !$selected_election_id): ?>
+                <?php if ($current_election !== null): ?>
                     </div> <!-- Close last election -->
                 <?php endif; ?>
             <?php endif; ?>
