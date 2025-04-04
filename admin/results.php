@@ -80,7 +80,6 @@ error_log("Statistics Results: " . print_r($stats, true));
 ?>
 <script nonce="<?php echo $_SESSION['csp_nonce']; ?>">
 document.addEventListener('DOMContentLoaded', function() {
-    // Initialize CountUp instances with actual values
     const options = {
         duration: 2,
         separator: ',',
@@ -88,14 +87,6 @@ document.addEventListener('DOMContentLoaded', function() {
         useEasing: true,
         useGrouping: true
     };
-
-    // Debug values in console
-    console.log('Statistics:', {
-        totalCodes: <?php echo (int)$stats['total_codes']; ?>,
-        totalVotes: <?php echo (int)$stats['total_votes']; ?>,
-        usedCodes: <?php echo (int)$stats['used_codes']; ?>,
-        voterTurnout: <?php echo (float)$stats['voter_turnout']; ?>
-    });
 
     // Create and start the counters
     new CountUp('totalCodes', <?php echo (int)$stats['total_codes']; ?>, options).start();
@@ -106,144 +97,57 @@ document.addEventListener('DOMContentLoaded', function() {
         decimals: 1,
         suffix: '%'
     }).start();
-
-    // Add hover effect for cards
-    document.querySelectorAll('.card').forEach(card => {
-        card.addEventListener('mouseenter', function() {
-            this.querySelector('.pulse-icon').style.animationPlayState = 'paused';
-        });
-        
-        card.addEventListener('mouseleave', function() {
-            this.querySelector('.pulse-icon').style.animationPlayState = 'running';
-        });
-    });
 });
 </script>
 
 <style>
-    /* Card animations */
-    .animate-card {
-        opacity: 0;
-        transform: translateY(20px);
-        animation: fadeInUp 0.6s ease forwards;
-        position: relative;
-        overflow: hidden;
-    }
-    
     .card {
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         position: relative;
         background: linear-gradient(45deg, var(--bs-white) 0%, var(--bs-light) 100%);
     }
-    
-    .card:hover {
-        transform: translateY(-8px) scale(1.02);
-        box-shadow: 0 12px 20px rgba(0,0,0,0.15) !important;
+
+    .border-left-primary { border-left: 4px solid #4e73df !important; }
+    .border-left-success { border-left: 4px solid #1cc88a !important; }
+    .border-left-info { border-left: 4px solid #36b9cc !important; }
+    .border-left-warning { border-left: 4px solid #f6c23e !important; }
+
+    .text-gray-300 { color: #dddfeb !important; }
+    .text-gray-800 { color: #5a5c69 !important; }
+
+    /* Progress bar */
+    .progress {
+        height: 10px;
+        border-radius: 5px;
+        background-color: #f8f9fc;
     }
 
-    .card:hover .card-body {
-        background: rgba(255, 255, 255, 0.1);
-    }
-
-    .card:hover .text-gray-300 {
-        color: var(--bs-primary) !important;
-        transform: scale(1.1);
-    }
-
-    .card:hover::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(
-            45deg,
-            rgba(255,255,255,0.1) 0%,
-            rgba(255,255,255,0.2) 50%,
-            rgba(255,255,255,0.1) 100%
-        );
-        transform: translateX(-100%);
-        animation: shimmer 1.5s infinite;
-    }
-
-    .card.border-left-primary:hover { background: linear-gradient(45deg, rgba(78,115,223,0.1) 0%, rgba(255,255,255,1) 100%); }
-    .card.border-left-success:hover { background: linear-gradient(45deg, rgba(28,200,138,0.1) 0%, rgba(255,255,255,1) 100%); }
-    .card.border-left-info:hover { background: linear-gradient(45deg, rgba(54,185,204,0.1) 0%, rgba(255,255,255,1) 100%); }
-    .card.border-left-warning:hover { background: linear-gradient(45deg, rgba(246,194,62,0.1) 0%, rgba(255,255,255,1) 100%); }
-
-    @keyframes shimmer {
-        0% { transform: translateX(-100%); }
-        100% { transform: translateX(100%); }
-    }
-    
-    @keyframes fadeInUp {
-        from {
-            opacity: 0;
-            transform: translateY(20px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-    
-    /* Staggered animation delay for cards */
-    .col-xl-3:nth-child(1) .animate-card { animation-delay: 0s; }
-    .col-xl-3:nth-child(2) .animate-card { animation-delay: 0.2s; }
-    .col-xl-3:nth-child(3) .animate-card { animation-delay: 0.4s; }
-    .col-xl-3:nth-child(4) .animate-card { animation-delay: 0.6s; }
-    
-    /* Progress bar animation */
     .progress-bar {
         transition: width 1.5s ease-in-out;
+        background-color: #4e73df;
     }
-    
-    /* Icon pulse animation */
+
+    /* Candidate results */
+    .candidate-info {
+        display: flex;
+        align-items: center;
+    }
+
+    .candidate-photo {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        object-fit: cover;
+    }
+
+    /* Icons */
     .pulse-icon {
-        transition: all 0.3s ease;
-    }
-    
-    .card:hover .pulse-icon {
-        animation: pulseAndRotate 1.5s infinite;
-        color: var(--bs-primary) !important;
+        color: #dddfeb;
     }
 
-    .card.border-left-primary:hover .pulse-icon { color: #4e73df !important; }
-    .card.border-left-success:hover .pulse-icon { color: #1cc88a !important; }
-    .card.border-left-info:hover .pulse-icon { color: #36b9cc !important; }
-    .card.border-left-warning:hover .pulse-icon { color: #f6c23e !important; }
-    
-    @keyframes pulseAndRotate {
-        0% {
-            transform: scale(1) rotate(0deg);
-        }
-        50% {
-            transform: scale(1.2) rotate(5deg);
-        }
-        100% {
-            transform: scale(1) rotate(0deg);
-        }
-    }
-
-    /* Number animation on hover */
-    .card .h5 {
-        transition: all 0.3s ease;
-    }
-
-    .card:hover .h5 {
-        transform: scale(1.1);
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
-    }
-
-    /* Title animation on hover */
-    .card .text-uppercase {
-        transition: all 0.3s ease;
-    }
-
-    .card:hover .text-uppercase {
-        letter-spacing: 0.5px;
-    }
+    .card.border-left-primary .pulse-icon { color: #4e73df; }
+    .card.border-left-success .pulse-icon { color: #1cc88a; }
+    .card.border-left-info .pulse-icon { color: #36b9cc; }
+    .card.border-left-warning .pulse-icon { color: #f6c23e; }
 </style>
 
 <div class="container-fluid py-4">
