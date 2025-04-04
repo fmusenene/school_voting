@@ -115,28 +115,37 @@ $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $items_per_page = isset($_GET['items_per_page']) ? (int)$_GET['items_per_page'] : 10;
 $offset = ($page - 1) * $items_per_page;
 
-// Get total number of records for pagination
-$count_sql = "SELECT COUNT(DISTINCT vc.id) as total FROM voting_codes vc";
+// Get total records for pagination
+$count_sql = "SELECT COUNT(*) as total FROM voting_codes vc WHERE 1=1";
 if ($selected_election_id) {
-    $count_sql .= " WHERE vc.election_id = ?";
-    $count_stmt = $conn->prepare($count_sql);
-    $count_stmt->execute([$selected_election_id]);
-} else {
-    $count_stmt = $conn->prepare($count_sql);
-    $count_stmt->execute();
+    $count_sql .= " AND vc.election_id = :election_id";
 }
-$total_records = $count_stmt->fetchColumn();
+
+$count_stmt = $conn->prepare($count_sql);
+if ($selected_election_id) {
+    $count_stmt->bindValue(':election_id', $selected_election_id, PDO::PARAM_INT);
+}
+$count_stmt->execute();
+$total_records = $count_stmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+// Calculate pagination values
 $total_pages = ceil($total_records / $items_per_page);
+$page = max(1, min($page, $total_pages)); // Ensure page is within valid range
+$start_record = (($page - 1) * $items_per_page) + 1;
+$end_record = min($start_record + $items_per_page - 1, $total_records);
+
+// Debug information
+error_log("Pagination Info: Page=$page, Items per page=$items_per_page, Total records=$total_records");
 
 // Modify the main query to include pagination
 $voting_codes_sql = "SELECT 
     vc.*, 
     e.title as election_title,
     e.status as election_status,
-    MAX(v.created_at) as used_at,
+    v.created_at as used_at,
     (SELECT COUNT(*) FROM votes WHERE voting_code_id = vc.id) as vote_count,
     CASE 
-        WHEN EXISTS (SELECT 1 FROM votes WHERE voting_code_id = vc.id) THEN 'Used'
+        WHEN (SELECT COUNT(*) FROM votes WHERE voting_code_id = vc.id) > 0 THEN 'Used'
         ELSE 'Available'
     END as status
 FROM voting_codes vc
@@ -148,7 +157,7 @@ if ($selected_election_id) {
     $voting_codes_sql .= " WHERE vc.election_id = :election_id";
 }
 
-$voting_codes_sql .= " GROUP BY vc.id, vc.code, vc.election_id, e.title, e.status
+$voting_codes_sql .= " GROUP BY vc.id
 ORDER BY vc.created_at DESC
 LIMIT :limit OFFSET :offset";
 
@@ -180,21 +189,36 @@ try {
 // Get statistics
 $stats_sql = "SELECT 
     COUNT(DISTINCT vc.id) as total_codes,
-    SUM(CASE WHEN EXISTS (SELECT 1 FROM votes v2 WHERE v2.voting_code_id = vc.id) THEN 1 ELSE 0 END) as used_codes
-FROM voting_codes vc";
+    COUNT(DISTINCT CASE WHEN v.id IS NOT NULL THEN vc.id END) as used_codes
+FROM voting_codes vc
+LEFT JOIN votes v ON vc.id = v.voting_code_id";
 
 if ($selected_election_id) {
-    $stats_sql .= " WHERE vc.election_id = ?";
-    $stats_stmt = $conn->prepare($stats_sql);
-    $stats_stmt->execute([$selected_election_id]);
-} else {
-    $stats_stmt = $conn->prepare($stats_sql);
-    $stats_stmt->execute();
+    $stats_sql .= " WHERE vc.election_id = :election_id";
 }
-$stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
 
-// Calculate unused codes
-$stats['unused_codes'] = $stats['total_codes'] - $stats['used_codes'];
+try {
+    $stats_stmt = $conn->prepare($stats_sql);
+    if ($selected_election_id) {
+        $stats_stmt->bindValue(':election_id', $selected_election_id, PDO::PARAM_INT);
+    }
+    $stats_stmt->execute();
+    $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
+
+    // Calculate unused codes
+    $stats['unused_codes'] = $stats['total_codes'] - ($stats['used_codes'] ?? 0);
+
+    // Debug logging
+    error_log("Statistics Query: " . $stats_sql);
+    error_log("Statistics Results: " . print_r($stats, true));
+} catch (PDOException $e) {
+    error_log("Statistics Error: " . $e->getMessage());
+    $stats = [
+        'total_codes' => 0,
+        'used_codes' => 0,
+        'unused_codes' => 0
+    ];
+}
 
 // Calculate percentages
 $used_percentage = $stats['total_codes'] > 0 ? 
@@ -211,7 +235,7 @@ $unused_percentage = $stats['total_codes'] > 0 ?
             <p class="text-muted mb-0">Generate and manage voting codes for elections</p>
         </div>
         <div class="d-flex gap-2">
-            <select class="form-select form-select-sm" style="width: 200px;" id="electionSelect" onchange="filterCodes(this.value)">
+            <select class="form-select form-select-sm" style="width: 200px;" id="electionSelect" onchange="filterByElection(this.value)">
                 <option value="">All Elections</option>
                 <?php foreach ($elections as $election): ?>
                     <option value="<?php echo $election['id']; ?>" <?php echo $selected_election_id == $election['id'] ? 'selected' : ''; ?>>
@@ -365,14 +389,14 @@ $unused_percentage = $stats['total_codes'] > 0 ?
                                         <?php echo htmlspecialchars($code['election_title'] ?? 'Unassigned'); ?>
                                     </td>
                                     <td>
-                                        <?php if ($code['vote_count'] > 0): ?>
+                                        <?php if ((int)$code['vote_count'] > 0): ?>
                                             <span class="badge bg-danger">Used</span>
                                         <?php else: ?>
                                             <span class="badge bg-info">Available</span>
                                         <?php endif; ?>
                                     </td>
                                     <td>
-                                        <?php if ($code['vote_count'] > 0): ?>
+                                        <?php if ((int)$code['vote_count'] > 0): ?>
                                             <span class="text-danger">
                                                 <?php echo date('M d, Y H:i', strtotime($code['used_at'])); ?>
                                             </span>
@@ -381,7 +405,7 @@ $unused_percentage = $stats['total_codes'] > 0 ?
                                         <?php endif; ?>
                                     </td>
                                     <td>
-                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteCode(<?php echo $code['id']; ?>)">
+                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteCode(<?php echo $code['id']; ?>)" <?php echo (int)$code['vote_count'] > 0 ? 'disabled' : ''; ?>>
                                             <i class="bi bi-trash"></i>
                                         </button>
                                     </td>
@@ -399,7 +423,7 @@ $unused_percentage = $stats['total_codes'] > 0 ?
             <!-- Pagination -->
             <div class="d-flex justify-content-between align-items-center mt-4">
                 <div class="text-muted">
-                    Showing <?php echo min($offset + 1, $total_records); ?> to <?php echo min($offset + $items_per_page, $total_records); ?> of <?php echo $total_records; ?> entries
+                    Showing <?php echo $start_record; ?> to <?php echo $end_record; ?> of <?php echo $total_records; ?> entries
                 </div>
                 <nav aria-label="Page navigation">
                     <ul class="pagination pagination-sm mb-0">
@@ -625,8 +649,15 @@ function changePage(page) {
 function changeItemsPerPage(value) {
     const urlParams = new URLSearchParams(window.location.search);
     urlParams.set('items_per_page', value);
-    urlParams.set('page', 1); // Reset to first page when changing items per page
-    window.location.href = '?' + urlParams.toString();
+    urlParams.set('page', '1'); // Reset to first page when changing items per page
+    
+    // Preserve election_id if it exists
+    const electionId = urlParams.get('election_id');
+    if (electionId) {
+        urlParams.set('election_id', electionId);
+    }
+    
+    window.location.href = 'voting_codes.php?' + urlParams.toString();
 }
 
 // Function to handle search
@@ -725,15 +756,21 @@ document.addEventListener('DOMContentLoaded', function() {
     loadCodes();
 });
 
-function filterCodes(electionId) {
+function filterByElection(electionId) {
     const urlParams = new URLSearchParams(window.location.search);
+    
+    // Preserve items_per_page if it exists
+    const itemsPerPage = urlParams.get('items_per_page') || '10';
+    urlParams.set('items_per_page', itemsPerPage);
+    
     if (electionId) {
         urlParams.set('election_id', electionId);
     } else {
         urlParams.delete('election_id');
     }
-    urlParams.set('page', 1); // Reset to first page when filtering
-    window.location.href = '?' + urlParams.toString();
+    
+    urlParams.set('page', '1'); // Reset to first page when filtering
+    window.location.href = 'voting_codes.php?' + urlParams.toString();
 }
 
 function confirmDelete() {
