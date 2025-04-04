@@ -1,98 +1,96 @@
 <?php
-// Database configuration without database name
-define('DB_HOST', 'localhost');
-define('DB_USER', 'root');
-define('DB_PASS', '');
+require_once 'database.php';
 
 try {
-    // First connect without database to create it
+    // Create database if it doesn't exist
     $pdo = new PDO("mysql:host=" . DB_HOST, DB_USER, DB_PASS);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     
-    // Create database if it doesn't exist
-    $pdo->exec("CREATE DATABASE IF NOT EXISTS school_voting");
-    echo "Database created successfully\n";
+    $sql = "CREATE DATABASE IF NOT EXISTS " . DB_NAME;
+    $pdo->exec($sql);
     
-    // Connect to the new database
-    $pdo = new PDO("mysql:host=" . DB_HOST . ";dbname=school_voting", DB_USER, DB_PASS);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    // Switch to the created database
+    $pdo->exec("USE " . DB_NAME);
     
-    // Create tables
-    $tables = [
-        "CREATE TABLE IF NOT EXISTS admins (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            username VARCHAR(50) UNIQUE NOT NULL,
-            password VARCHAR(255) NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )",
-        
-        "CREATE TABLE IF NOT EXISTS elections (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            title VARCHAR(100) NOT NULL,
-            description TEXT,
-            start_date DATETIME NOT NULL,
-            end_date DATETIME NOT NULL,
-            status ENUM('pending', 'active', 'completed') DEFAULT 'pending',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )",
-        
-        "CREATE TABLE IF NOT EXISTS positions (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            election_id INT,
-            title VARCHAR(100) NOT NULL,
-            description TEXT,
-            FOREIGN KEY (election_id) REFERENCES elections(id) ON DELETE CASCADE
-        )",
-        
-        "CREATE TABLE IF NOT EXISTS candidates (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            position_id INT,
-            name VARCHAR(100) NOT NULL,
-            description TEXT,
-            FOREIGN KEY (position_id) REFERENCES positions(id) ON DELETE CASCADE
-        )",
-        
-        "CREATE TABLE IF NOT EXISTS voting_codes (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            election_id INT,
-            code VARCHAR(16) UNIQUE NOT NULL,
-            is_used BOOLEAN DEFAULT FALSE,
-            used_at DATETIME,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (election_id) REFERENCES elections(id) ON DELETE CASCADE
-        )",
-        
-        "CREATE TABLE IF NOT EXISTS votes (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            election_id INT,
-            position_id INT,
-            candidate_id INT,
-            voting_code_id INT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (election_id) REFERENCES elections(id) ON DELETE CASCADE,
-            FOREIGN KEY (position_id) REFERENCES positions(id) ON DELETE CASCADE,
-            FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
-            FOREIGN KEY (voting_code_id) REFERENCES voting_codes(id) ON DELETE CASCADE
-        )"
-    ];
+    // Create admins table
+    $sql = "CREATE TABLE IF NOT EXISTS admins (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        username VARCHAR(50) NOT NULL UNIQUE,
+        password VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )";
+    $pdo->exec($sql);
     
-    foreach ($tables as $sql) {
-        $pdo->exec($sql);
-        echo "Table created successfully\n";
-    }
+    // Create elections table
+    $sql = "CREATE TABLE IF NOT EXISTS elections (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        title VARCHAR(100) NOT NULL,
+        description TEXT,
+        start_date DATETIME NOT NULL,
+        end_date DATETIME NOT NULL,
+        status ENUM('pending', 'active', 'completed') DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )";
+    $pdo->exec($sql);
     
-    // Create default admin
-    $stmt = $pdo->prepare("INSERT IGNORE INTO admins (username, password) VALUES (?, ?)");
+    // Create positions table
+    $sql = "CREATE TABLE IF NOT EXISTS positions (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        election_id INT NOT NULL,
+        title VARCHAR(100) NOT NULL,
+        description TEXT,
+        max_votes INT DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (election_id) REFERENCES elections(id) ON DELETE CASCADE
+    )";
+    $pdo->exec($sql);
+    
+    // Create candidates table
+    $sql = "CREATE TABLE IF NOT EXISTS candidates (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        position_id INT NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        photo VARCHAR(255),
+        bio TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (position_id) REFERENCES positions(id) ON DELETE CASCADE
+    )";
+    $pdo->exec($sql);
+    
+    // Create voting_codes table
+    $sql = "CREATE TABLE IF NOT EXISTS voting_codes (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        code VARCHAR(10) NOT NULL UNIQUE,
+        election_id INT NOT NULL,
+        is_used BOOLEAN DEFAULT FALSE,
+        used_at DATETIME,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (election_id) REFERENCES elections(id) ON DELETE CASCADE
+    )";
+    $pdo->exec($sql);
+    
+    // Create votes table
+    $sql = "CREATE TABLE IF NOT EXISTS votes (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        candidate_id INT NOT NULL,
+        voting_code_id INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
+        FOREIGN KEY (voting_code_id) REFERENCES voting_codes(id) ON DELETE CASCADE
+    )";
+    $pdo->exec($sql);
+    
+    // Insert default admin user if not exists
+    $sql = "INSERT IGNORE INTO admins (username, password) VALUES (?, ?)";
+    $stmt = $pdo->prepare($sql);
     $stmt->execute(['admin', password_hash('admin123', PASSWORD_DEFAULT)]);
     
-    // Insert a test election
-    $stmt = $pdo->prepare("INSERT INTO elections (title, description, start_date, end_date, status) 
-                          VALUES (?, ?, NOW(), DATE_ADD(NOW(), INTERVAL 7 DAY), ?)");
-    $stmt->execute(['Test Election', 'This is a test election', 'active']);
-    
     echo "Database setup completed successfully!\n";
+    echo "Default admin credentials:\n";
+    echo "Username: admin\n";
+    echo "Password: admin123\n";
     
 } catch(PDOException $e) {
-    die("Error: " . $e->getMessage() . "\n");
+    die("Setup failed: " . $e->getMessage() . "\n");
 }
 ?> 

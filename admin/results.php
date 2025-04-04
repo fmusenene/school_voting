@@ -54,13 +54,14 @@ $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get statistics
 $stats_sql = "SELECT 
-    (SELECT COUNT(*) FROM voting_codes WHERE 1=1 " . ($selected_election_id ? "AND election_id = ?" : "") . ") as total_codes,
-    (SELECT COUNT(*) FROM votes v 
-     INNER JOIN candidates c ON v.candidate_id = c.id 
-     INNER JOIN positions p ON c.position_id = p.id 
-     WHERE 1=1 " . ($selected_election_id ? "AND p.election_id = ?" : "") . ") as total_votes,
-    (SELECT COUNT(*) FROM voting_codes 
-     WHERE is_used = 1 " . ($selected_election_id ? "AND election_id = ?" : "") . ") as used_codes";
+    (SELECT COUNT(*) FROM voting_codes vc 
+     WHERE 1=1 " . ($selected_election_id ? "AND vc.election_id = ?" : "") . ") as total_codes,
+    (SELECT COUNT(DISTINCT v.id) FROM votes v 
+     INNER JOIN voting_codes vc ON v.voting_code_id = vc.id 
+     WHERE 1=1 " . ($selected_election_id ? "AND vc.election_id = ?" : "") . ") as total_votes,
+    (SELECT COUNT(*) FROM voting_codes vc 
+     WHERE EXISTS (SELECT 1 FROM votes v WHERE v.voting_code_id = vc.id) 
+     " . ($selected_election_id ? "AND vc.election_id = ?" : "") . ") as used_codes";
 
 $stats_params = [];
 if ($selected_election_id) {
@@ -84,6 +85,9 @@ error_log("Statistics Results: " . print_r($stats, true));
 ?>
 <script nonce="<?php echo $_SESSION['csp_nonce']; ?>">
 document.addEventListener('DOMContentLoaded', function() {
+    // Debug logging
+    console.log('Raw Statistics:', <?php echo json_encode($stats); ?>);
+    
     // Initialize CountUp instances with actual values
     const options = {
         duration: 2,
@@ -94,22 +98,26 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Debug values in console
-    console.log('Statistics:', {
+    console.log('Statistics for CountUp:', {
         totalCodes: <?php echo (int)$stats['total_codes']; ?>,
         totalVotes: <?php echo (int)$stats['total_votes']; ?>,
         usedCodes: <?php echo (int)$stats['used_codes']; ?>,
         voterTurnout: <?php echo (float)$stats['voter_turnout']; ?>
     });
 
-    // Create and start the counters
-    new CountUp('totalCodes', <?php echo (int)$stats['total_codes']; ?>, options).start();
-    new CountUp('totalVotes', <?php echo (int)$stats['total_votes']; ?>, options).start();
-    new CountUp('usedCodes', <?php echo (int)$stats['used_codes']; ?>, options).start();
-    new CountUp('voterTurnout', <?php echo (float)$stats['voter_turnout']; ?>, {
-        ...options,
-        decimals: 1,
-        suffix: '%'
-    }).start();
+    try {
+        // Create and start the counters
+        new CountUp('totalCodes', <?php echo (int)$stats['total_codes']; ?>, options).start();
+        new CountUp('totalVotes', <?php echo (int)$stats['total_votes']; ?>, options).start();
+        new CountUp('usedCodes', <?php echo (int)$stats['used_codes']; ?>, options).start();
+        new CountUp('voterTurnout', <?php echo (float)$stats['voter_turnout']; ?>, {
+            ...options,
+            decimals: 1,
+            suffix: '%'
+        }).start();
+    } catch (error) {
+        console.error('Error initializing counters:', error);
+    }
 
     // Add hover effect for cards
     document.querySelectorAll('.card').forEach(card => {
