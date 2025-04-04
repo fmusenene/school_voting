@@ -333,7 +333,17 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="card shadow mb-4">
         <div class="card-header py-3">
             <h6 class="m-0 font-weight-bold text-primary">
-                <?php echo $selected_election_id ? htmlspecialchars($elections[array_search($selected_election_id, array_column($elections, 'id'))]['title']) . ' Results' : 'All Elections Results'; ?>
+                <?php 
+                if ($selected_election_id) {
+                    $selected_election = array_filter($elections, function($e) use ($selected_election_id) {
+                        return $e['id'] == $selected_election_id;
+                    });
+                    $selected_election = reset($selected_election);
+                    echo $selected_election ? htmlspecialchars($selected_election['title']) . ' Results' : 'Election Results';
+                } else {
+                    echo 'All Elections Results';
+                }
+                ?>
             </h6>
         </div>
         <div class="card-body">
@@ -354,7 +364,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         endif;
                         $current_election = $result['election_id'];
                         echo '<div class="mb-4">';
-                        echo '<h4 class="mb-3">' . htmlspecialchars($result['election_title']) . '</h4>';
+                        echo '<h4 class="mb-3">' . htmlspecialchars($result['election_title'] ?? '') . '</h4>';
                     endif;
                     
                     if ($current_position !== $result['position_id']):
@@ -363,7 +373,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         endif;
                         $current_position = $result['position_id'];
                         echo '<div class="mb-4">';
-                        echo '<h5 class="mb-3">' . htmlspecialchars($result['position_title']) . '</h5>';
+                        echo '<h5 class="mb-3">' . htmlspecialchars($result['position_title'] ?? '') . '</h5>';
                     endif;
                     
                     // Calculate percentage
@@ -377,11 +387,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <div class="d-flex align-items-center">
-                                <?php if ($result['candidate_photo']): 
+                                <?php if (!empty($result['candidate_photo'])): 
                                     $image_path = "../" . htmlspecialchars($result['candidate_photo']);
                                 ?>
                                     <img src="<?php echo $image_path; ?>" 
-                                         alt="<?php echo htmlspecialchars($result['candidate_name']); ?>"
+                                         alt="<?php echo htmlspecialchars($result['candidate_name'] ?? ''); ?>"
                                          class="rounded-circle me-2" width="40" height="40"
                                          onerror="this.src='../assets/img/default-avatar.svg'">
                                 <?php else: ?>
@@ -390,7 +400,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                          class="rounded-circle me-2" width="40" height="40">
                                 <?php endif; ?>
                                 <div>
-                                    <h6 class="mb-0"><?php echo htmlspecialchars($result['candidate_name']); ?></h6>
+                                    <h6 class="mb-0"><?php echo htmlspecialchars($result['candidate_name'] ?? 'Unnamed Candidate'); ?></h6>
                                     <small class="text-muted"><?php echo $result['vote_count']; ?> votes</small>
                                 </div>
                             </div>
