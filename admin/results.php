@@ -101,6 +101,47 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 
 <style>
+    /* Statistics Cards */
+    .stats-card {
+        transition: all 0.3s ease-in-out;
+    }
+
+    .stats-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+    }
+
+    .stats-card .icon-container {
+        transition: all 0.3s ease;
+    }
+
+    .stats-card:hover .icon-container {
+        transform: scale(1.1) rotate(5deg);
+    }
+
+    .stats-card:hover .text-gray-300 {
+        color: inherit !important;
+    }
+
+    .stats-card.border-left-primary:hover { background: linear-gradient(45deg, rgba(78,115,223,0.1) 0%, rgba(255,255,255,1) 100%); }
+    .stats-card.border-left-success:hover { background: linear-gradient(45deg, rgba(28,200,138,0.1) 0%, rgba(255,255,255,1) 100%); }
+    .stats-card.border-left-info:hover { background: linear-gradient(45deg, rgba(54,185,204,0.1) 0%, rgba(255,255,255,1) 100%); }
+    .stats-card.border-left-warning:hover { background: linear-gradient(45deg, rgba(246,194,62,0.1) 0%, rgba(255,255,255,1) 100%); }
+
+    .stats-card.border-left-primary:hover .text-gray-300 { color: #4e73df !important; }
+    .stats-card.border-left-success:hover .text-gray-300 { color: #1cc88a !important; }
+    .stats-card.border-left-info:hover .text-gray-300 { color: #36b9cc !important; }
+    .stats-card.border-left-warning:hover .text-gray-300 { color: #f6c23e !important; }
+
+    .stats-card .h5 {
+        transition: all 0.3s ease;
+    }
+
+    .stats-card:hover .h5 {
+        transform: scale(1.1);
+    }
+
+    /* Regular cards and other styles */
     .card {
         position: relative;
         background: linear-gradient(45deg, var(--bs-white) 0%, var(--bs-light) 100%);
@@ -170,7 +211,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <!-- Statistics Cards -->
     <div class="row mb-4">
         <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-primary shadow h-100 py-2 animate-card">
+            <div class="card border-left-primary shadow h-100 py-2 stats-card">
                 <div class="card-body">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
@@ -179,7 +220,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div class="h5 mb-0 font-weight-bold text-gray-800" id="totalCodes">0</div>
                         </div>
                         <div class="col-auto">
-                            <i class="bi bi-key fa-2x text-gray-300 pulse-icon"></i>
+                            <div class="icon-container">
+                                <i class="bi bi-key fa-2x text-gray-300"></i>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -187,7 +230,7 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
 
         <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-success shadow h-100 py-2 animate-card">
+            <div class="card border-left-success shadow h-100 py-2 stats-card">
                 <div class="card-body">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
@@ -196,7 +239,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div class="h5 mb-0 font-weight-bold text-gray-800" id="totalVotes">0</div>
                         </div>
                         <div class="col-auto">
-                            <i class="bi bi-check-circle fa-2x text-gray-300 pulse-icon"></i>
+                            <div class="icon-container">
+                                <i class="bi bi-check-circle fa-2x text-gray-300"></i>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -204,7 +249,7 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
 
         <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-info shadow h-100 py-2 animate-card">
+            <div class="card border-left-info shadow h-100 py-2 stats-card">
                 <div class="card-body">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
@@ -213,7 +258,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div class="h5 mb-0 font-weight-bold text-gray-800" id="usedCodes">0</div>
                         </div>
                         <div class="col-auto">
-                            <i class="bi bi-person-check fa-2x text-gray-300 pulse-icon"></i>
+                            <div class="icon-container">
+                                <i class="bi bi-person-check fa-2x text-gray-300"></i>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -221,7 +268,7 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
 
         <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-warning shadow h-100 py-2 animate-card">
+            <div class="card border-left-warning shadow h-100 py-2 stats-card">
                 <div class="card-body">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
@@ -232,7 +279,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             </div>
                         </div>
                         <div class="col-auto">
-                            <i class="bi bi-graph-up fa-2x text-gray-300 pulse-icon"></i>
+                            <div class="icon-container">
+                                <i class="bi bi-graph-up fa-2x text-gray-300"></i>
+                            </div>
                         </div>
                     </div>
                 </div>
