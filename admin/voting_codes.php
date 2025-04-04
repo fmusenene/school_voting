@@ -239,7 +239,7 @@ $unused_percentage = $stats['total_codes'] > 0 ?
                             <i class="bi bi-check-circle-fill text-success fs-4"></i>
                         </div>
                         <div>
-                            <h6 class="card-title text-muted mb-1">Codes Used</h6>
+                            <h6 class="card-title text-muted mb-1">Used Codes</h6>
                             <p class="card-text display-6 mb-0"><?php echo number_format($stats['used_codes']); ?></p>
                         </div>
                     </div>
