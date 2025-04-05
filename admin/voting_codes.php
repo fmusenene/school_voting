@@ -110,66 +110,115 @@ $elections = $conn->query($elections_sql)->fetchAll(PDO::FETCH_ASSOC);
 // Get selected election ID from URL
 $selected_election_id = isset($_GET['election_id']) ? (int)$_GET['election_id'] : null;
 
-// Get voting codes with election and usage information
+// Pagination settings
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$items_per_page = isset($_GET['items_per_page']) ? (int)$_GET['items_per_page'] : 10;
+$offset = ($page - 1) * $items_per_page;
+
+// Get total records for pagination
+$count_sql = "SELECT COUNT(*) as total FROM voting_codes vc WHERE 1=1";
+if ($selected_election_id) {
+    $count_sql .= " AND vc.election_id = :election_id";
+}
+
+$count_stmt = $conn->prepare($count_sql);
+if ($selected_election_id) {
+    $count_stmt->bindValue(':election_id', $selected_election_id, PDO::PARAM_INT);
+}
+$count_stmt->execute();
+$total_records = $count_stmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+// Calculate pagination values
+$total_pages = ceil($total_records / $items_per_page);
+$page = max(1, min($page, $total_pages)); // Ensure page is within valid range
+$start_record = (($page - 1) * $items_per_page) + 1;
+$end_record = min($start_record + $items_per_page - 1, $total_records);
+
+// Debug information
+error_log("Pagination Info: Page=$page, Items per page=$items_per_page, Total records=$total_records");
+
+// Modify the main query to include pagination
 $voting_codes_sql = "SELECT 
     vc.*, 
     e.title as election_title,
     e.status as election_status,
-    MAX(v.created_at) as used_at,
+    v.created_at as used_at,
     (SELECT COUNT(*) FROM votes WHERE voting_code_id = vc.id) as vote_count,
     CASE 
-        WHEN EXISTS (SELECT 1 FROM votes WHERE voting_code_id = vc.id) THEN 'Used'
+        WHEN (SELECT COUNT(*) FROM votes WHERE voting_code_id = vc.id) > 0 THEN 'Used'
         ELSE 'Available'
     END as status
 FROM voting_codes vc
 LEFT JOIN elections e ON vc.election_id = e.id
-LEFT JOIN votes v ON vc.id = v.voting_code_id
-GROUP BY vc.id, vc.code, vc.election_id, e.title, e.status
-ORDER BY vc.created_at DESC";
+LEFT JOIN votes v ON vc.id = v.voting_code_id";
 
+// Add WHERE clause if election is selected
 if ($selected_election_id) {
-    $voting_codes_sql = "SELECT 
-        vc.*, 
-        e.title as election_title,
-        e.status as election_status,
-        MAX(v.created_at) as used_at,
-        (SELECT COUNT(*) FROM votes WHERE voting_code_id = vc.id) as vote_count,
-        CASE 
-            WHEN EXISTS (SELECT 1 FROM votes WHERE voting_code_id = vc.id) THEN 'Used'
-            ELSE 'Available'
-        END as status
-    FROM voting_codes vc
-    LEFT JOIN elections e ON vc.election_id = e.id
-    LEFT JOIN votes v ON vc.id = v.voting_code_id
-    WHERE vc.election_id = ?
-    GROUP BY vc.id, vc.code, vc.election_id, e.title, e.status
-    ORDER BY vc.created_at DESC";
-    $stmt = $conn->prepare($voting_codes_sql);
-    $stmt->execute([$selected_election_id]);
-} else {
-    $stmt = $conn->prepare($voting_codes_sql);
-    $stmt->execute();
+    $voting_codes_sql .= " WHERE vc.election_id = :election_id";
 }
+
+$voting_codes_sql .= " GROUP BY vc.id
+ORDER BY vc.created_at DESC
+LIMIT :limit OFFSET :offset";
+
+try {
+    $stmt = $conn->prepare($voting_codes_sql);
+    
+    // Bind parameters using named parameters
+    if ($selected_election_id) {
+        $stmt->bindValue(':election_id', $selected_election_id, PDO::PARAM_INT);
+    }
+    $stmt->bindValue(':limit', (int)$items_per_page, PDO::PARAM_INT);
+    $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
+    
+    // Execute the query
+    $stmt->execute();
 $voting_codes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Debug information
+    error_log("Query executed successfully");
+    error_log("Number of records returned: " . count($voting_codes));
+    
+} catch (PDOException $e) {
+    error_log("Query execution error: " . $e->getMessage());
+    error_log("SQL Query: " . $voting_codes_sql);
+    $error = "Error loading voting codes: " . $e->getMessage();
+    $voting_codes = [];
+}
 
 // Get statistics
 $stats_sql = "SELECT 
     COUNT(DISTINCT vc.id) as total_codes,
-    SUM(CASE WHEN EXISTS (SELECT 1 FROM votes v2 WHERE v2.voting_code_id = vc.id) THEN 1 ELSE 0 END) as used_codes
-FROM voting_codes vc";
+    COUNT(DISTINCT CASE WHEN v.id IS NOT NULL THEN vc.id END) as used_codes
+FROM voting_codes vc
+LEFT JOIN votes v ON vc.id = v.voting_code_id";
 
 if ($selected_election_id) {
-    $stats_sql .= " WHERE vc.election_id = ?";
-    $stats_stmt = $conn->prepare($stats_sql);
-    $stats_stmt->execute([$selected_election_id]);
-} else {
-    $stats_stmt = $conn->prepare($stats_sql);
-    $stats_stmt->execute();
+    $stats_sql .= " WHERE vc.election_id = :election_id";
 }
+
+try {
+    $stats_stmt = $conn->prepare($stats_sql);
+    if ($selected_election_id) {
+        $stats_stmt->bindValue(':election_id', $selected_election_id, PDO::PARAM_INT);
+    }
+    $stats_stmt->execute();
 $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
 
 // Calculate unused codes
-$stats['unused_codes'] = $stats['total_codes'] - $stats['used_codes'];
+    $stats['unused_codes'] = $stats['total_codes'] - ($stats['used_codes'] ?? 0);
+
+    // Debug logging
+    error_log("Statistics Query: " . $stats_sql);
+    error_log("Statistics Results: " . print_r($stats, true));
+} catch (PDOException $e) {
+    error_log("Statistics Error: " . $e->getMessage());
+    $stats = [
+        'total_codes' => 0,
+        'used_codes' => 0,
+        'unused_codes' => 0
+    ];
+}
 
 // Calculate percentages
 $used_percentage = $stats['total_codes'] > 0 ? 
@@ -186,7 +235,7 @@ $unused_percentage = $stats['total_codes'] > 0 ?
             <p class="text-muted mb-0">Generate and manage voting codes for elections</p>
         </div>
         <div class="d-flex gap-2">
-            <select class="form-select" id="electionSelect" onchange="filterCodes(this.value)">
+            <select class="form-select form-select-sm" style="width: 200px;" id="electionSelect" onchange="filterByElection(this.value)">
                 <option value="">All Elections</option>
                 <?php foreach ($elections as $election): ?>
                     <option value="<?php echo $election['id']; ?>" <?php echo $selected_election_id == $election['id'] ? 'selected' : ''; ?>>
@@ -194,8 +243,8 @@ $unused_percentage = $stats['total_codes'] > 0 ?
                     </option>
                 <?php endforeach; ?>
             </select>
-            <button type="button" class="btn btn-primary btn-sm px-3" data-bs-toggle="modal" data-bs-target="#generateCodesModal">
-                <i class="bi bi-plus-circle"></i> Generate New Codes
+            <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#generateCodesModal">
+                <i class="bi bi-plus-circle me-1"></i> Generate New Codes
             </button>
         </div>
     </div>
@@ -263,6 +312,46 @@ $unused_percentage = $stats['total_codes'] > 0 ?
         </div>
     </div>
 
+    <!-- Controls Card -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white py-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex gap-2 align-items-center">
+                    <div class="input-group input-group-sm" style="width: 250px;">
+                        <input type="text" class="form-control" id="searchInput" placeholder="Search codes...">
+                        <button class="btn btn-outline-secondary" type="button" onclick="searchCodes()">
+                            <i class="bi bi-search"></i>
+                        </button>
+                    </div>
+                    <select class="form-select form-select-sm" id="itemsPerPage" style="width: auto;" onchange="changeItemsPerPage(this.value)">
+                        <option value="10">10 per page</option>
+                        <option value="25">25 per page</option>
+                        <option value="50">50 per page</option>
+                        <option value="100">100 per page</option>
+                    </select>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="printCodes()">
+                        <i class="bi bi-printer"></i> Print
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-primary dropdown-toggle" type="button" id="exportDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-download"></i> Export
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="exportDropdown">
+                            <li><button class="dropdown-item" type="button" onclick="exportToPDF()">
+                                <i class="bi bi-file-pdf"></i> PDF
+                            </button></li>
+                            <li><button class="dropdown-item" type="button" onclick="exportToExcel()">
+                                <i class="bi bi-file-excel"></i> Excel
+                            </button></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Voting Codes Table -->
     <div class="card border-0 shadow-sm">
         <div class="card-header bg-white py-3">
@@ -300,14 +389,14 @@ $unused_percentage = $stats['total_codes'] > 0 ?
                                         <?php echo htmlspecialchars($code['election_title'] ?? 'Unassigned'); ?>
                                     </td>
                                     <td>
-                                        <?php if ($code['vote_count'] > 0): ?>
+                                        <?php if ((int)$code['vote_count'] > 0): ?>
                                             <span class="badge bg-danger">Used</span>
                                         <?php else: ?>
                                             <span class="badge bg-info">Available</span>
                                         <?php endif; ?>
                                     </td>
                                     <td>
-                                        <?php if ($code['vote_count'] > 0): ?>
+                                        <?php if ((int)$code['vote_count'] > 0): ?>
                                             <span class="text-danger">
                                                 <?php echo date('M d, Y H:i', strtotime($code['used_at'])); ?>
                                             </span>
@@ -316,7 +405,7 @@ $unused_percentage = $stats['total_codes'] > 0 ?
                                         <?php endif; ?>
                                     </td>
                                     <td>
-                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteCode(<?php echo $code['id']; ?>)">
+                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteCode(<?php echo $code['id']; ?>)" <?php echo (int)$code['vote_count'] > 0 ? 'disabled' : ''; ?>>
                                             <i class="bi bi-trash"></i>
                                         </button>
                                     </td>
@@ -331,6 +420,27 @@ $unused_percentage = $stats['total_codes'] > 0 ?
                     </button>
                 </div>
             </form>
+            <!-- Pagination -->
+            <div class="d-flex justify-content-between align-items-center mt-4">
+                <div class="text-muted">
+                    Showing <?php echo $start_record; ?> to <?php echo $end_record; ?> of <?php echo $total_records; ?> entries
+                </div>
+                <nav aria-label="Page navigation">
+                    <ul class="pagination pagination-sm mb-0">
+                        <li class="page-item <?php echo ($page <= 1) ? 'disabled' : ''; ?>">
+                            <a class="page-link" href="?page=<?php echo ($page - 1); ?>&items_per_page=<?php echo $items_per_page; ?><?php echo $selected_election_id ? '&election_id=' . $selected_election_id : ''; ?>">Previous</a>
+                        </li>
+                        <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+                            <li class="page-item <?php echo ($page == $i) ? 'active' : ''; ?>">
+                                <a class="page-link" href="?page=<?php echo $i; ?>&items_per_page=<?php echo $items_per_page; ?><?php echo $selected_election_id ? '&election_id=' . $selected_election_id : ''; ?>"><?php echo $i; ?></a>
+                            </li>
+                        <?php endfor; ?>
+                        <li class="page-item <?php echo ($page >= $total_pages) ? 'disabled' : ''; ?>">
+                            <a class="page-link" href="?page=<?php echo ($page + 1); ?>&items_per_page=<?php echo $items_per_page; ?><?php echo $selected_election_id ? '&election_id=' . $selected_election_id : ''; ?>">Next</a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
         </div>
     </div>
 </div>
@@ -349,7 +459,7 @@ $unused_percentage = $stats['total_codes'] > 0 ?
                     
                     <div class="mb-4">
                         <label class="form-label">Election</label>
-                        <select class="form-select" name="election_id" required>
+                        <select class="form-select form-select-sm" name="election_id" required>
                             <option value="">Select Election</option>
                             <?php foreach ($elections as $election): ?>
                                 <option value="<?php echo $election['id']; ?>">
@@ -399,19 +509,268 @@ code {
 }
 </style>
 
-<script>
+<script nonce="<?php echo $_SESSION['csp_nonce']; ?>">
 document.querySelector('.select-all').addEventListener('change', function() {
     document.querySelectorAll('.code-checkbox').forEach(checkbox => {
         checkbox.checked = this.checked;
     });
 });
 
-function filterCodes(electionId) {
-    if (electionId) {
-        window.location.href = `voting_codes.php?election_id=${electionId}`;
-    } else {
-        window.location.href = 'voting_codes.php';
+// Add these variables for pagination and search
+let currentPage = 1;
+let itemsPerPage = 10;
+let searchQuery = '';
+
+// Function to load codes with pagination and search
+function loadCodes() {
+    const data = new FormData();
+    data.append('action', 'fetch_codes');
+    data.append('page', currentPage);
+    data.append('items_per_page', itemsPerPage);
+    data.append('search', searchQuery);
+
+    fetch('voting_codes_ajax.php', {
+        method: 'POST',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: data
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            updateTable(data.data.codes);
+            updatePagination(data.data.total_pages, data.data.total_records);
+        }
+    })
+    .catch(error => console.error('Error:', error));
+}
+
+// Function to update table content
+function updateTable(codes) {
+    const tbody = document.querySelector('tbody');
+    tbody.innerHTML = '';
+
+    codes.forEach(code => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>
+                <input type="checkbox" name="selected_codes[]" value="${code.id}" class="form-check-input code-checkbox">
+            </td>
+            <td>
+                <code class="bg-light px-2 py-1 rounded">${code.code}</code>
+            </td>
+            <td>
+                <span class="badge bg-success">${code.election_status || 'Active'}</span>
+                ${code.election_title || 'Unassigned'}
+            </td>
+            <td>
+                <span class="badge bg-${code.vote_count > 0 ? 'danger' : 'info'}">
+                    ${code.vote_count > 0 ? 'Used' : 'Available'}
+                </span>
+            </td>
+            <td>
+                ${code.vote_count > 0 ? 
+                    `<span class="text-danger">${new Date(code.used_at).toLocaleString()}</span>` : 
+                    '<span class="text-muted">-</span>'}
+            </td>
+            <td>
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteCode(${code.id})">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+// Function to update pagination
+function updatePagination(totalPages, totalRecords) {
+    const paginationContainer = document.createElement('div');
+    paginationContainer.className = 'd-flex justify-content-between align-items-center mt-3';
+    
+    // Showing entries text
+    const showingText = document.createElement('div');
+    showingText.className = 'text-muted';
+    const start = (currentPage - 1) * itemsPerPage + 1;
+    const end = Math.min(currentPage * itemsPerPage, totalRecords);
+    showingText.textContent = `Showing ${start} to ${end} of ${totalRecords} entries`;
+    
+    // Pagination controls
+    const pagination = document.createElement('nav');
+    pagination.innerHTML = `
+        <ul class="pagination pagination-sm mb-0">
+            <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#" onclick="changePage(${currentPage - 1})">&laquo;</a>
+            </li>
+    `;
+    
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+            pagination.querySelector('ul').innerHTML += `
+                <li class="page-item ${currentPage === i ? 'active' : ''}">
+                    <a class="page-link" href="#" onclick="changePage(${i})">${i}</a>
+                </li>
+            `;
+        } else if (i === currentPage - 3 || i === currentPage + 3) {
+            pagination.querySelector('ul').innerHTML += `
+                <li class="page-item disabled">
+                    <a class="page-link" href="#">...</a>
+                </li>
+            `;
+        }
     }
+    
+    pagination.querySelector('ul').innerHTML += `
+        <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="changePage(${currentPage + 1})">&raquo;</a>
+        </li>
+    `;
+    
+    paginationContainer.appendChild(showingText);
+    paginationContainer.appendChild(pagination);
+    
+    // Replace or append pagination
+    const existingPagination = document.querySelector('.card-body > .d-flex.justify-content-between');
+    if (existingPagination) {
+        existingPagination.replaceWith(paginationContainer);
+    } else {
+        document.querySelector('.card-body').appendChild(paginationContainer);
+    }
+}
+
+// Function to change page
+function changePage(page) {
+    currentPage = page;
+    loadCodes();
+}
+
+// Function to change items per page
+function changeItemsPerPage(value) {
+    const urlParams = new URLSearchParams(window.location.search);
+    urlParams.set('items_per_page', value);
+    urlParams.set('page', '1'); // Reset to first page when changing items per page
+    
+    // Preserve election_id if it exists
+    const electionId = urlParams.get('election_id');
+    if (electionId) {
+        urlParams.set('election_id', electionId);
+    }
+    
+    window.location.href = 'voting_codes.php?' + urlParams.toString();
+}
+
+// Function to handle search
+function searchCodes() {
+    searchQuery = document.getElementById('searchInput').value.trim();
+    currentPage = 1;
+    loadCodes();
+}
+
+// Add event listener for search input
+document.getElementById('searchInput').addEventListener('keyup', function(event) {
+    if (event.key === 'Enter') {
+        searchCodes();
+    }
+});
+
+// Print functionality
+function printCodes() {
+    const printWindow = window.open('', '_blank');
+    const table = document.querySelector('table').cloneNode(true);
+    
+    // Remove action column and checkboxes
+    table.querySelectorAll('tr').forEach(tr => {
+        tr.deleteCell(-1); // Remove last cell (Actions)
+        tr.deleteCell(0);  // Remove first cell (Checkbox)
+    });
+    
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Voting Codes</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+            <style>
+                @media print {
+                    .table { width: 100%; margin-bottom: 1rem; }
+                    .badge { border: 1px solid #000; }
+                }
+            </style>
+        </head>
+        <body class="p-4">
+            <h2 class="mb-4">Voting Codes List</h2>
+            ${table.outerHTML}
+        </body>
+        </html>
+    `);
+    
+    printWindow.document.close();
+    printWindow.focus();
+    
+    printWindow.onload = function() {
+        printWindow.print();
+        printWindow.close();
+    };
+}
+
+// Export to PDF functionality
+function exportToPDF() {
+    const element = document.querySelector('table');
+    html2canvas(element).then(canvas => {
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF('l', 'mm', 'a4');
+        const imgProps = pdf.getImageProperties(imgData);
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+        
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        pdf.save('voting_codes.pdf');
+    });
+}
+
+// Export to Excel functionality
+function exportToExcel() {
+    const table = document.querySelector('table');
+    const rows = Array.from(table.querySelectorAll('tr'));
+    
+    const data = rows.map(row => {
+        const cells = Array.from(row.querySelectorAll('th, td'));
+        return cells.map(cell => cell.textContent.trim());
+    });
+    
+    // Remove checkbox and actions columns
+    data.forEach(row => {
+        row.pop(); // Remove actions column
+        row.shift(); // Remove checkbox column
+    });
+    
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Voting Codes');
+    XLSX.writeFile(wb, 'voting_codes.xlsx');
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadCodes();
+});
+
+function filterByElection(electionId) {
+    const urlParams = new URLSearchParams(window.location.search);
+    
+    // Preserve items_per_page if it exists
+    const itemsPerPage = urlParams.get('items_per_page') || '10';
+    urlParams.set('items_per_page', itemsPerPage);
+    
+    if (electionId) {
+        urlParams.set('election_id', electionId);
+    } else {
+        urlParams.delete('election_id');
+    }
+    
+    urlParams.set('page', '1'); // Reset to first page when filtering
+    window.location.href = 'voting_codes.php?' + urlParams.toString();
 }
 
 function confirmDelete() {
@@ -423,5 +782,10 @@ function confirmDelete() {
     return confirm('Are you sure you want to delete the selected voting codes?');
 }
 </script>
+
+<!-- Add required libraries -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
 <?php require_once "includes/footer.php"; ?> 

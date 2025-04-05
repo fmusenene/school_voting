@@ -352,3 +352,67 @@ function exportToPDF() {
         showNotification('Error exporting to PDF', 'error');
     });
 } 
+
+
+// Located in: admin/assets/js/candidates.js
+
+function handleAddCandidate(event) {
+    event.preventDefault(); // Prevent the default form submission (page reload)
+
+    const form = event.target; // Or document.getElementById('addCandidateForm');
+    const formData = new FormData(form);
+    formData.append('action', 'add'); // Tell the backend what action to perform
+
+    const submitButton = form.querySelector('button[type="submit"]'); // Get the submit button
+    const originalButtonText = submitButton.innerHTML;
+    submitButton.disabled = true;
+    submitButton.innerHTML = 'Saving...'; // Optional: Provide user feedback
+
+    fetch('candidates_ajax.php', { // Send data to the backend AJAX handler
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json()) // Expect a JSON response from the server
+    .then(data => {
+        if (data.success) {
+            // Success!
+            showNotification(data.message || 'Candidate added successfully!', 'success'); // Show success message
+            
+            // Close the modal
+            const modalElement = document.getElementById('addCandidateModal'); // Assuming your modal has id="addCandidateModal"
+            if (modalElement) {
+                const modalInstance = bootstrap.Modal.getInstance(modalElement);
+                if (modalInstance) {
+                    modalInstance.hide();
+                }
+            }
+            
+            form.reset(); // Clear the form
+            loadCandidates(); // Refresh the candidate list
+        } else {
+            // Error reported by server
+            showNotification(data.message || 'Error adding candidate.', 'error');
+        }
+    })
+    .catch(error => {
+        // Network or other errors
+        console.error('Error:', error);
+        showNotification('An unexpected error occurred.', 'error');
+    })
+    .finally(() => {
+        // Re-enable the button regardless of success or error
+        submitButton.disabled = false;
+        submitButton.innerHTML = originalButtonText;
+    });
+}
+
+// Make sure the form has the ID 'addCandidateForm' and the modal has an ID like 'addCandidateModal'
+// e.g., in admin/candidates.php:
+// <form id="addCandidateForm"> ... </form>
+// <div class="modal" id="addCandidateModal"> ... </div>
+
+// Ensure the event listener is attached in initializeEventListeners:
+// const addCandidateForm = document.getElementById('addCandidateForm');
+// if (addCandidateForm) {
+//     addCandidateForm.addEventListener('submit', handleAddCandidate);
+// }

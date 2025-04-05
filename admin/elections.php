@@ -543,7 +543,8 @@ function deleteElection(id) {
 document.addEventListener('DOMContentLoaded', function() {
     // Handle edit button clicks
     document.querySelectorAll('.edit-election').forEach(button => {
-        button.addEventListener('click', function() {
+        button.addEventListener('click', function(e) {
+            e.preventDefault();
             const electionId = this.getAttribute('data-id');
             const electionTitle = this.getAttribute('data-title');
             const electionDescription = this.getAttribute('data-description');
@@ -570,6 +571,15 @@ document.addEventListener('DOMContentLoaded', function() {
         const form = document.getElementById('editElectionForm');
         const formData = new FormData(form);
 
+        // Validate dates
+        const startDate = new Date(formData.get('start_date'));
+        const endDate = new Date(formData.get('end_date'));
+        
+        if (endDate <= startDate) {
+            alert('End date must be after start date');
+            return;
+        }
+
         // Show loading state
         const saveButton = this;
         const originalText = saveButton.innerHTML;
@@ -594,12 +604,7 @@ document.addEventListener('DOMContentLoaded', function() {
             },
             body: JSON.stringify(data)
         })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            return response.json();
-        })
+        .then(response => response.json())
         .then(data => {
             if (data.success) {
                 // Show success message
@@ -609,7 +614,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     ${data.message}
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 `;
-                document.querySelector('.container-fluid').insertBefore(alert, document.querySelector('.row'));
+                document.querySelector('.container-fluid').insertBefore(alert, document.querySelector('.container-fluid').firstChild);
 
                 // Close the modal
                 const modal = bootstrap.Modal.getInstance(document.getElementById('editElectionModal'));
@@ -631,7 +636,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 ${error.message || 'An error occurred while saving changes.'}
                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             `;
-            document.querySelector('.container-fluid').insertBefore(alert, document.querySelector('.row'));
+            document.querySelector('.container-fluid').insertBefore(alert, document.querySelector('.container-fluid').firstChild);
         })
         .finally(() => {
             // Reset button state
@@ -646,7 +651,7 @@ document.addEventListener('DOMContentLoaded', function() {
             window.location.href = 'delete_election.php?id=' + electionToDelete;
         }
     });
-    });
+});
 </script> 
 
 <?php require_once "includes/footer.php"; ?> 
