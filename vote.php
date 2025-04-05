@@ -1,226 +1,194 @@
-<?php
+<?php declare(strict_types=1); // Enforce strict types
+
 // Start session **before** any output
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Establish database connection ($conn PDO object)
-require_once "config/database.php";
+// --- Includes ---
+require_once "config/database.php"; // Provides $conn (mysqli object)
+// require_once "includes/init.php"; // Include if needed
+// require_once "includes/session.php"; // Include if it contains helpers used here
 
-// --- Security & Configuration ---
-date_default_timezone_set('Asia/Manila'); // Adjust timezone as needed
-error_reporting(E_ALL); // Development: Show all errors
-ini_set('display_errors', 1); // Development: Display errors
-// ini_set('display_errors', 0); // Production: Hide errors
-// error_reporting(0); // Production: Report no errors
+// --- Configuration & Security ---
+date_default_timezone_set('Africa/Nairobi'); // EAT
+error_reporting(E_ALL); // Dev
+ini_set('display_errors', '1'); // Dev
+// Production: error_reporting(0); ini_set('display_errors', '0'); ini_set('log_errors', '1');
 
 // --- Session Validation & Data Initialization ---
-// Check for essential session variables set during login (index.php)
-if (!isset($_SESSION['voting_code'], $_SESSION['election_id'], $_SESSION['voting_code_id'])) {
-    session_destroy(); // Ensure clean state if session is incomplete
-    header("Location: index.php?error=session_invalid");
-    exit();
+if (!isset($_SESSION['voting_code'], $_SESSION['election_id'], $_SESSION['voting_code_id'])) { 
+    header("Location: index.php?error=session_invalid"); exit();
 }
-
-// Assign session variables locally and cast types for safety
-$voting_code = $_SESSION['voting_code'];
+$voting_code_session = $_SESSION['voting_code'];
 $election_id = (int)$_SESSION['election_id'];
 $voting_code_db_id = (int)$_SESSION['voting_code_id'];
 
-$error = ''; // User-facing errors
-$election = null; // Holds election details
-$positions = []; // Holds positions and their candidates
-$vote_processed_successfully = false; // Flag for JS success handling if not AJAX
+$error = ''; $election = null; $positions = []; $vote_processed_successfully = false;
 
-// Generate CSP nonce
-if (empty($_SESSION['csp_nonce'])) {
-    $_SESSION['csp_nonce'] = base64_encode(random_bytes(16));
+// --- DB Connection Check ---
+if (!$conn || $conn->connect_error) {
+    error_log("Vote Page DB Connection Error: " . ($conn ? $conn->connect_error : 'Check config'));
+    $error = "Database connection error. Please contact support.";
 }
-$nonce = htmlspecialchars($_SESSION['csp_nonce'], ENT_QUOTES, 'UTF-8');
 
-
-// --- Data Fetching and Pre-Checks ---
-// This block confirms the session data is still valid before allowing voting
-try {
-    // 1. Fetch Election Details & Check if Active (Simplified check as requested)
-    $stmt_election = $conn->prepare("SELECT id, title, description FROM elections WHERE id = :election_id AND status = 'active'");
-    $stmt_election->bindParam(':election_id', $election_id, PDO::PARAM_INT);
-    $stmt_election->execute();
-    $election = $stmt_election->fetch(PDO::FETCH_ASSOC);
-
-    if (!$election) {
-        // Election not active, invalidate session and redirect
-        session_destroy();
-        header("Location: index.php?error=election_inactive");
-        exit();
-    }
-
-    // 2. Re-validate Voting Code (Check if used since login)
-    $stmt_code = $conn->prepare("SELECT is_used FROM voting_codes WHERE id = :id");
-    $stmt_code->bindParam(':id', $voting_code_db_id, PDO::PARAM_INT);
-    $stmt_code->execute();
-    $code_status = $stmt_code->fetch(PDO::FETCH_ASSOC);
-
-    // Code must exist and be unused
-    if (!$code_status || $code_status['is_used']) {
-        session_destroy();
-        header("Location: index.php?error=already_voted");
-        exit();
-    }
-
-    // 3. Fetch Positions and Associated Candidates for this Election
-    $stmt_positions = $conn->prepare("
-        SELECT p.id as position_id, p.title as position_title,
-               c.id as candidate_id, c.name as candidate_name, c.photo as candidate_photo
-        FROM positions p
-        LEFT JOIN candidates c ON p.id = c.position_id
-        WHERE p.election_id = :election_id
-        ORDER BY p.id ASC, c.name ASC -- Consistent ordering
-    ");
-    $stmt_positions->bindParam(':election_id', $election_id, PDO::PARAM_INT);
-    $stmt_positions->execute();
-
-    $results = $stmt_positions->fetchAll(PDO::FETCH_ASSOC);
-    if (empty($results)) {
-        $error = "Voting cannot proceed: No positions are defined for this election.";
-    } else {
-        // Group candidates by position
-        foreach ($results as $row) {
-            if (!isset($positions[$row['position_id']])) {
-                $positions[$row['position_id']] = [
-                    'id' => $row['position_id'],
-                    'title' => $row['position_title'], // Keep original case
-                    'candidates' => []
-                ];
-            }
-            // Only add candidate info if a candidate exists for this position row
-            if ($row['candidate_id'] !== null) {
-                 $photo_path_relative = 'assets/images/default-avatar.png'; // Default avatar path
-                 if (!empty($row['candidate_photo'])) {
-                    $potential_path = ltrim($row['candidate_photo'], '/');
-                     // Basic validation: ensure it's within the expected folder and exists
-                     if (strpos($potential_path, 'uploads/candidates/') === 0 && file_exists($potential_path)) {
-                         $photo_path_relative = htmlspecialchars($potential_path);
-                     } else {
-                         error_log("Vote Page: Candidate photo missing or invalid path: " . $potential_path);
-                     }
-                 }
-                 $positions[$row['position_id']]['candidates'][] = [
-                    'id' => $row['candidate_id'],
-                    'name' => $row['candidate_name'],
-                    'photo' => $photo_path_relative
-                ];
-            }
+// --- Data Fetching and Pre-Checks (using MySQLi Direct SQL) ---
+if (!$error) {
+    try {
+        // 1. Fetch Election Details & Check if Active
+        $sql_check_election = "SELECT id, title, description
+                               FROM elections
+                               WHERE id = $election_id AND status = 'active'
+                               LIMIT 1"; // Embed validated integer ID
+        $result_election = $conn->query($sql_check_election);
+        if ($result_election === false) throw new mysqli_sql_exception("DB error checking election status: " . $conn->error, $conn->errno);
+        if ($result_election->num_rows === 0) {
+            $result_election->free_result();
+            throw new Exception("The election is no longer active."); // Custom exception for flow control
         }
-        // Filter out positions that ended up with no candidates
-        $positions = array_filter($positions, fn($pos) => !empty($pos['candidates']));
-         if (empty($positions)) {
-             $error = "Voting cannot proceed: No candidates have been added for the available positions.";
-         }
+        $election = $result_election->fetch_assoc();
+        $result_election->free_result();
+
+        // 2. Re-validate Voting Code (Check if used since login)
+        $sql_check_code = "SELECT is_used FROM voting_codes WHERE id = $voting_code_db_id LIMIT 1"; // Embed validated integer ID
+        $result_code = $conn->query($sql_check_code);
+        if ($result_code === false) throw new mysqli_sql_exception("DB error re-validating code: " . $conn->error, $conn->errno);
+        if ($result_code->num_rows === 0) { $result_code->free_result(); throw new Exception("Your voting code is no longer valid."); }
+        $code_status = $result_code->fetch_assoc();
+        $result_code->free_result();
+        if (!empty($code_status['is_used'])) throw new Exception("This voting code has already been used."); // Custom exception
+
+        // 3. Fetch Positions and Associated Candidates
+        $sql_positions_candidates = "SELECT p.id as position_id, p.title as position_title,
+                                            c.id as candidate_id, c.name as candidate_name, c.photo as candidate_photo
+                                     FROM positions p
+                                     LEFT JOIN candidates c ON p.id = c.position_id
+                                     WHERE p.election_id = $election_id
+                                     ORDER BY p.id ASC, c.name ASC"; // Embed validated integer ID
+        $result_positions = $conn->query($sql_positions_candidates);
+        if ($result_positions === false) throw new mysqli_sql_exception("DB error fetching positions/candidates: " . $conn->error, $conn->errno);
+
+        if ($result_positions->num_rows === 0) {
+            $error = "Voting cannot proceed: No positions defined for this election.";
+        } else {
+            while ($row = $result_positions->fetch_assoc()) {
+                $pos_id = (int)$row['position_id'];
+                if (!isset($positions[$pos_id])) { $positions[$pos_id] = ['id' => $pos_id,'title' => $row['position_title'],'candidates' => []]; }
+                if ($row['candidate_id'] !== null) {
+                    $photo_path_relative = 'assets/images/default-avatar.png'; // Default
+                    if (!empty($row['candidate_photo'])) {
+                        $potential_path = ltrim((string)$row['candidate_photo'], '/');
+                        $absolute_path = dirname(__DIR__) . '/' . $potential_path;
+                        if (strpos($potential_path, 'uploads/candidates/') === 0 && file_exists($absolute_path)) { $photo_path_relative = htmlspecialchars($potential_path); }
+                        else { error_log("Vote Page: Candidate photo missing/invalid path: " . $absolute_path); }
+                    }
+                    $positions[$pos_id]['candidates'][] = ['id' => (int)$row['candidate_id'],'name' => $row['candidate_name'],'photo' => $photo_path_relative];
+                }
+            }
+            $positions = array_filter($positions, fn($pos) => !empty($pos['candidates']));
+            if (empty($positions)) { $error = "Voting cannot proceed: No candidates added for available positions."; }
+        }
+        $result_positions->free_result();
+
+    } catch (mysqli_sql_exception $db_ex) { // Catch specific DB errors
+        error_log("Vote Page Load - Database Error: " . $db_ex->getMessage() . " (Code: " . $db_ex->getCode() . ")");
+        $error = "An error occurred while loading voting information. Please try again later.";
+        $positions = []; // Prevent form rendering
+    } catch (Exception $e) { // Catch validation exceptions (election inactive, code used)
+        // Log out and redirect with specific error message
+        error_log("Vote Page Session Validation Error: " . $e->getMessage()); 
+        if (session_status() === PHP_SESSION_NONE) { session_start(); }
+        $_SESSION['login_error'] = $e->getMessage() . " Please log in again.";
+        header("Location: index.php");
+        exit();
     }
+} // End DB connection check and initial data load
 
-} catch (PDOException $e) {
-    error_log("Vote Page - Database Error: " . $e->getMessage());
-    $error = "An error occurred while loading voting information. Please try again later or contact support.";
-    $positions = []; // Prevent form rendering on error
-}
-
-// --- Handle Form Submission ---
+// --- Handle Vote Form Submission ---
+$submitted_votes = [];
+$missing_votes_for_positions = [];
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && !$error && !empty($positions)) {
     $submitted_votes = $_POST['votes'] ?? [];
     $required_position_ids = array_keys($positions);
-    $missing_votes_for_positions = [];
-
-    // Server-side validation: Ensure a vote for every rendered position
+    // Validate all positions have a selection
     foreach ($required_position_ids as $pos_id) {
-        if (!isset($submitted_votes[$pos_id]) || empty($submitted_votes[$pos_id])) {
-            $missing_votes_for_positions[] = $pos_id;
-        }
+        if (!isset($submitted_votes[$pos_id]) || !filter_var($submitted_votes[$pos_id], FILTER_VALIDATE_INT)) { $missing_votes_for_positions[] = $pos_id; }
     }
 
     if (!empty($missing_votes_for_positions)) {
         $error = "Please make a selection for all positions before submitting.";
     } else {
         // Proceed with vote processing within a transaction
+        $isInTransaction = false;
         try {
-            $conn->beginTransaction();
+            $conn->begin_transaction(); $isInTransaction = true;
 
-            // 1. Lock and verify code is still unused
-            $stmt_lock_code = $conn->prepare("SELECT is_used FROM voting_codes WHERE id = :id FOR UPDATE");
-            $stmt_lock_code->bindParam(':id', $voting_code_db_id, PDO::PARAM_INT);
-            $stmt_lock_code->execute();
-            $locked_code_status = $stmt_lock_code->fetch(PDO::FETCH_ASSOC);
-
-            if (!$locked_code_status || $locked_code_status['is_used']) {
-                 throw new Exception("This voting code has already been used or is invalid.");
-            }
+            // 1. Lock and re-verify code is still unused
+            $sql_lock_code = "SELECT is_used FROM voting_codes WHERE id = $voting_code_db_id FOR UPDATE";
+            $result_lock = $conn->query($sql_lock_code);
+            if ($result_lock === false) throw new mysqli_sql_exception("DB lock error: " . $conn->error, $conn->errno);
+            if ($result_lock->num_rows === 0) { $result_lock->free_result(); throw new Exception("Voting code invalid."); }
+            $locked_code_status = $result_lock->fetch_assoc(); $result_lock->free_result();
+            if (!empty($locked_code_status['is_used'])) throw new Exception("Voting code already used.");
 
             // 2. Mark Voting Code as Used
-            $stmt_mark_used = $conn->prepare("UPDATE voting_codes SET is_used = 1, used_at = NOW() WHERE id = :id");
-            $stmt_mark_used->bindParam(':id', $voting_code_db_id, PDO::PARAM_INT);
-            $update_success = $stmt_mark_used->execute();
+            $sql_mark_used = "UPDATE voting_codes SET is_used = 1, used_at = NOW() WHERE id = $voting_code_db_id";
+            $update_result = $conn->query($sql_mark_used);
+            if ($update_result === false || $conn->affected_rows !== 1) throw new Exception("Failed to update voting code status.");
 
-            if (!$update_success || $stmt_mark_used->rowCount() === 0) {
-                 throw new Exception("Failed to mark the voting code as used. Please try again.");
-            }
-
-            // 3. Record Votes (Including all relevant IDs)
-            $stmt_insert_vote = $conn->prepare("INSERT INTO votes (election_id, position_id, candidate_id, voting_code_id) VALUES (:election_id, :position_id, :candidate_id, :voting_code_id)");
-
+            // 3. Record Votes
             foreach ($submitted_votes as $position_id => $candidate_id) {
-                 $position_id_int = filter_var($position_id, FILTER_VALIDATE_INT);
-                 $candidate_id_int = filter_var($candidate_id, FILTER_VALIDATE_INT);
-
-                // Validate submitted IDs against the loaded data for this election
+                $position_id_int = filter_var($position_id, FILTER_VALIDATE_INT);
+                $candidate_id_int = filter_var($candidate_id, FILTER_VALIDATE_INT);
+                // Final validation against loaded $positions data
                 if ($position_id_int && $candidate_id_int && isset($positions[$position_id_int])) {
-                    $candidate_exists_in_position = false;
-                    foreach($positions[$position_id_int]['candidates'] as $candidate_data) {
-                        if ($candidate_data['id'] == $candidate_id_int) {
-                            $candidate_exists_in_position = true;
-                            break;
-                        }
-                    }
-                    if ($candidate_exists_in_position) {
-                        $stmt_insert_vote->execute([
-                             ':election_id' => $election_id,
-                             ':position_id' => $position_id_int,
-                             ':candidate_id' => $candidate_id_int,
-                             ':voting_code_id' => $voting_code_db_id
-                         ]);
-                    } else { error_log("Vote Submission: Skipped invalid candidate ($candidate_id_int) for position ($position_id_int)."); }
-                 } else { error_log("Vote Submission: Skipped invalid position ($position_id) or candidate ($candidate_id)."); }
+                    $candidate_exists = false; foreach($positions[$position_id_int]['candidates'] as $c) { if ($c['id'] === $candidate_id_int) { $candidate_exists = true; break; } }
+                    if ($candidate_exists) {
+                        $sql_insert_vote = "INSERT INTO votes (election_id, position_id, candidate_id, voting_code_id) VALUES ($election_id, $position_id_int, $candidate_id_int, $voting_code_db_id)";
+                        if ($conn->query($sql_insert_vote) === false) throw new Exception("Error saving vote for position ID $position_id_int.");
+                    } else { error_log("Vote Submit: Skipped invalid cand $candidate_id_int for pos $position_id_int."); }
+                } else { error_log("Vote Submit: Skipped invalid pos $position_id or cand $candidate_id."); }
             }
 
-            // 4. Commit Transaction
-            $conn->commit();
+            // 4. Commit
+            if (!$conn->commit()) { $isInTransaction = false; throw new mysqli_sql_exception("Transaction commit failed: " . $conn->error, $conn->errno); }
+            $isInTransaction = false;
 
-            // 5. Success: Clear session, set flag for JS
-            session_destroy();
+            // 5. Success 
             $vote_processed_successfully = true;
 
-            // If AJAX, send success (JS will handle redirect)
+            // Respond for AJAX or set flag for non-AJAX JS
             if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
-                header('Content-Type: application/json');
-                echo json_encode(['success' => true]);
-                exit();
+                header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success' => true]); exit();
             }
-            // If not AJAX, JS will detect $vote_processed_successfully flag below
+            // Non-AJAX success handled by JS flag below
 
         } catch (Exception $e) {
-            $conn->rollBack();
+            if ($isInTransaction && $conn && $conn->thread_id) { $conn->rollback(); }
             error_log("Vote Submission Exception: " . $e->getMessage());
-            $error = "Error submitting vote: " . $e->getMessage();
-             // If code used error, destroy session because login is now invalid
-             if (strpos($e->getMessage(), 'already been used') !== false) {
-                 session_destroy();
-             }
-             // Respond with JSON error if AJAX
-             if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
-                header('Content-Type: application/json', true, (strpos($error,'already been used') !== false ? 409 : 500)); // Conflict or Server Error
-                echo json_encode(['success' => false, 'error' => $error]); exit();
-             }
+            $error = "Error submitting vote: " . $e->getMessage(); 
+            // Respond with JSON error if AJAX
+            if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
+                $http_code = (stripos($error,'already been used') !== false ? 409 : 500);
+                header('Content-Type: application/json; charset=utf-8', true, $http_code); echo json_encode(['success' => false, 'error' => $error]); exit();
+            }
         }
-    } // End validation check
+    }
+}
+
+// --- Generate CSP nonce for HTML output ---
+if (empty($_SESSION['csp_nonce'])) { $_SESSION['csp_nonce'] = base64_encode(random_bytes(16)); }
+$nonce = htmlspecialchars($_SESSION['csp_nonce'], ENT_QUOTES, 'UTF-8');
+
+// --- Include HTML Header ---
+// Use actual header include if available
+if (file_exists("includes/header.php")) {
+    require_once "includes/header.php";
+} else {
+    // Fallback basic HTML structure
+    ?>
+    <!DOCTYPE html> <html lang="en"> <head> <meta charset="UTF-8"> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <title>Cast Your Vote - <?php echo htmlspecialchars($election['title'] ?? 'School Election'); ?></title> <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"> <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"> <link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin> <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet"> </head> <body>
+    <?php
 }
 ?>
 <!DOCTYPE html>

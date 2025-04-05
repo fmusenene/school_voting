@@ -12,7 +12,7 @@ require_once "includes/session.php"; // Provides isAdminLoggedIn()
 
 // --- Security: Admin Check ---
 if (!isAdminLoggedIn()) {
-    header("Location: /school_voting/admin/login.php"); // Adjust path if needed
+    header("Location: admin/login.php"); // Adjust path if needed
     exit();
 }
 

@@ -6,7 +6,7 @@ require_once "includes/session.php"; // Session handling functions
 
 // Check if admin is logged in
 if (!isAdminLoggedIn()) {
-    header("Location: /school_voting/admin/login.php");
+    header("Location: admin/login.php");
     exit();
 }
 

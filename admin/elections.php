@@ -4,7 +4,7 @@ require_once "../config/database.php";
 
 // Check if admin is logged in
 if (!isset($_SESSION['admin_id'])) {
-    header("Location: /school_voting/admin/login.php");
+    header("Location: admin/login.php");
     exit();
 }
 
