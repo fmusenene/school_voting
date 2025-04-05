@@ -57,7 +57,7 @@ if (!$logo_base64) {
 // --- Data Fetching (Elections & Positions) ---
 try {
     $elections_sql = "SELECT id, title FROM elections ORDER BY created_at DESC, title ASC";
-    $elections = $conn->query($elections_sql)->fetchAll(PDO::FETCH_ASSOC);
+$elections = $conn->query($elections_sql)->fetchAll(PDO::FETCH_ASSOC);
 
     $positions_sql = "SELECT id, election_id, title FROM positions ORDER BY title ASC";
     $all_positions = $conn->query($positions_sql)->fetchAll(PDO::FETCH_ASSOC);
@@ -98,7 +98,7 @@ try {
     $where_clause_vc = ""; // For voting_codes filter
     $where_clause_votes = ""; // For votes filter (using aliases)
 
-    if ($selected_election_id) {
+if ($selected_election_id) {
         $where_clause_vc = " WHERE vc.election_id = :election_id ";
         $where_clause_votes = " WHERE e.id = :election_id "; // Filter on elections table alias 'e'
         $stats_params[':election_id'] = $selected_election_id;
@@ -123,8 +123,8 @@ try {
 
     // Total Votes Cast (scoped by election and position if selected)
     $sql_total_votes = "SELECT COUNT(v.id) FROM votes v
-                       INNER JOIN candidates c ON v.candidate_id = c.id
-                       INNER JOIN positions p ON c.position_id = p.id
+     INNER JOIN candidates c ON v.candidate_id = c.id 
+     INNER JOIN positions p ON c.position_id = p.id 
                        INNER JOIN elections e ON p.election_id = e.id"
                        . $where_clause_votes; // Where clause filters on e.id and p.id
     $stmt_total_votes = $conn->prepare($sql_total_votes);
@@ -145,7 +145,7 @@ try {
     error_log("Stats - Used Codes: {$stats['used_codes']} (Query: $sql_used_codes | Params: " . json_encode($stats_params) . ")");
 
 
-    // Calculate voter turnout
+// Calculate voter turnout
     $stats['voter_turnout'] = ($stats['total_codes'] > 0)
         ? round(((int)$stats['used_codes'] / (int)$stats['total_codes']) * 100, 1)
         : 0;
@@ -605,14 +605,14 @@ require_once "includes/header.php"; // Assumes this outputs starting HTML, head,
          <div class="col-lg-5 col-md-6 mb-3 mb-md-0">
               <label for="electionSelect" class="form-label"><i class="bi bi-calendar3 me-1"></i>Filter by Election</label>
               <select class="form-select form-select-sm" id="electionSelect" aria-label="Filter by election">
-                   <option value="">All Elections</option>
-                   <?php foreach ($elections as $election): ?>
-                       <option value="<?php echo $election['id']; ?>" <?php echo $selected_election_id == $election['id'] ? 'selected' : ''; ?>>
-                           <?php echo htmlspecialchars($election['title']); ?>
-                       </option>
-                   <?php endforeach; ?>
-              </select>
-         </div>
+                    <option value="">All Elections</option>
+                    <?php foreach ($elections as $election): ?>
+                        <option value="<?php echo $election['id']; ?>" <?php echo $selected_election_id == $election['id'] ? 'selected' : ''; ?>>
+                            <?php echo htmlspecialchars($election['title']); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
           <div class="col-lg-5 col-md-6 mb-3 mb-md-0">
               <label for="positionSelect" class="form-label"><i class="bi bi-person-badge me-1"></i>Filter by Position</label>
               <select class="form-select form-select-sm" id="positionSelect" aria-label="Filter by position" <?php echo empty($all_positions) ? 'disabled' : ''; ?>>
@@ -632,7 +632,7 @@ require_once "includes/header.php"; // Assumes this outputs starting HTML, head,
               <button type="button" class="btn btn-sm btn-outline-secondary" id="printButton" title="Print Results">
                    <i class="bi bi-printer"></i><span class="d-none d-lg-inline ms-1">Print</span>
               </button> 
-         </div>
+        </div>
     </div>
 
     <!-- <div class="row mb-4">
@@ -705,7 +705,7 @@ require_once "includes/header.php"; // Assumes this outputs starting HTML, head,
         <?php if ($results_error): ?>
             <div class="alert alert-danger shadow-sm" role="alert">
                 <i class="bi bi-exclamation-triangle-fill me-2"></i> <?php echo htmlspecialchars($results_error); ?>
-            </div>
+                    </div>
         <?php elseif (empty($grouped_results)): ?>
             <div class="card shadow-sm border-0 no-results-card">
                 <div class="card-body no-results">
@@ -713,7 +713,7 @@ require_once "includes/header.php"; // Assumes this outputs starting HTML, head,
                     <p class="mb-0 h5">No Results Found</p>
                     <p class="mt-2"><small>No election data matches the current filter criteria.</small></p>
                 </div>
-            </div>
+                    </div>
         <?php else: ?>
             <?php foreach ($grouped_results as $election_id_loop => $election_data): ?>
                 <div class="card shadow-sm election-results-card">
@@ -726,11 +726,11 @@ require_once "includes/header.php"; // Assumes this outputs starting HTML, head,
                            if ($election_data['status'] === 'completed') {$status_class = 'dark'; $status_text_class='white';}
                         ?>
                          <span class="badge bg-<?php echo $status_class; ?> text-<?php echo $status_text_class;?>"><?php echo ucfirst(htmlspecialchars($election_data['status'])); ?></span>
-                    </div>
-                    <div class="card-body">
+        </div>
+        <div class="card-body">
                         <?php if (empty($election_data['positions'])): ?>
                             <p class="text-muted text-center my-3 fst-italic">No positions found for this election.</p>
-                        <?php else: ?>
+            <?php else: ?>
                             <?php foreach ($election_data['positions'] as $position_id_loop => $position_data): ?>
                                 <div class="position-results mb-4">
                                     <h6 class="position-header"><?php echo htmlspecialchars($position_data['title']); ?>
@@ -742,7 +742,7 @@ require_once "includes/header.php"; // Assumes this outputs starting HTML, head,
                                         <?php foreach ($position_data['candidates'] as $candidate): ?>
                                             <div class="candidate-result-item <?php echo ($candidate['is_winner'] ?? false) ? 'is-winner' : ''; ?>">
                                                  <div class="candidate-info">
-                                                     <?php
+                <?php
                                                          $photo_path = '../assets/images/default-avatar.png'; // Reliable default
                                                          if (!empty($candidate['candidate_photo'])) {
                                                              $relative_photo_path = "../" . ltrim($candidate['candidate_photo'], '/');
@@ -760,11 +760,11 @@ require_once "includes/header.php"; // Assumes this outputs starting HTML, head,
                                                              <?php echo htmlspecialchars($candidate['candidate_name']); ?>
                                                               <?php if ($candidate['is_winner'] ?? false): ?>
                                                                   <span class="winner-badge"><i class="bi bi-star-fill"></i> Winner</span>
-                                                              <?php endif; ?>
+                                <?php endif; ?>
                                                          </h6>
                                                          <div class="candidate-votes"><?php echo number_format($candidate['vote_count']); ?> votes</div>
-                                                     </div>
-                                                 </div>
+                                </div>
+                            </div>
                                                  <div class="candidate-progress">
                                                       <div class="progress" title="<?php echo $candidate['percentage']; ?>% of votes">
                                                             <div class="progress-bar" role="progressbar"
@@ -774,14 +774,14 @@ require_once "includes/header.php"; // Assumes this outputs starting HTML, head,
                                                                  <?php if ($candidate['percentage'] >= 15): // Show text only if bar is wide enough ?>
                                                                      <?php echo $candidate['percentage']; ?>%
                                                                  <?php endif; ?>
-                                                            </div>
-                                                        </div>
+                            </div>
+                        </div>
                                                  </div>
                                                  <div class="candidate-percentage">
                                                      <?php echo $candidate['percentage']; ?>%
-                                                 </div>
-                                            </div>
-                                        <?php endforeach; ?>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
                                      <?php endif; // end if candidates exist ?>
                                 </div>
                             <?php endforeach; ?>
@@ -901,9 +901,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- Sidebar State ---
      try { // Basic check, assuming header/footer includes handle the main logic
-        const sidebar = document.getElementById('sidebar');
-        const mainContent = document.getElementById('mainContent');
-        const navbar = document.querySelector('.navbar');
+            const sidebar = document.getElementById('sidebar');
+            const mainContent = document.getElementById('mainContent');
+            const navbar = document.querySelector('.navbar');
         const storedState = localStorage.getItem('sidebarState');
         if (storedState === 'collapsed' && sidebar && mainContent && navbar) {
             sidebar.classList.add('collapsed');
@@ -975,7 +975,7 @@ function exportToPDF() {
     const loader = showLoader("Generating PDF (this might take a moment)...");
 
     const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
-    const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfWidth = pdf.internal.pageSize.getWidth();
     const pdfHeight = pdf.internal.pageSize.getHeight();
     const margin = 12; // Reduced margin
     const contentWidth = pdfWidth - (margin * 2);
@@ -1099,4 +1099,4 @@ function exportToExcel() {
 </script>
 
 </body>
-</html>
+</html> 
