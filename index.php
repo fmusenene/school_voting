@@ -74,8 +74,7 @@ if (isset($_SESSION['voting_code'], $_SESSION['election_id'], $_SESSION['voting_
             $valid_session = true;
         } else {
             // Refine error message if possible
-            if ($current_election_status !== 'active' && $current_election_status !== null) {
-                 $session_error_message = "The election associated with your session is no longer active.";
+            if ($current_election_status !== 'active' && $current_election_status !== null) { 
             } elseif ($current_code_used !== 0) { 
             }
         }
