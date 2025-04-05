@@ -1,4 +1,4 @@
-<?php declare(strict_types=1); // Enforce strict types
+<?php declare(strict_types=0); // Enforce strict types
 
 // --- Initialization & Config ---
 if (session_status() === PHP_SESSION_NONE) {
