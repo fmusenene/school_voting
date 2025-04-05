@@ -1,0 +1,71 @@
+{
+    "name": "School Voting System",
+    "short_name": "SchoolVote",
+    "description": "Online platform for conducting school elections securely and efficiently.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#f4f7fc",
+    "theme_color": "#0A4FAD",
+    "orientation": "portrait",
+    "scope": "/",
+    "icons": [
+        {
+            "src": "/assets/images/gombe-ss-logo-72x72.png",
+            "sizes": "72x72",
+            "type": "image/png"
+        },
+        {
+            "src": "/assets/images/gombe-ss-logo-96x96.png",
+            "sizes": "96x96",
+            "type": "image/png"
+        },
+        {
+            "src": "/assets/images/gombe-ss-logo-128x128.png",
+            "sizes": "128x128",
+            "type": "image/png"
+        },
+        {
+            "src": "/assets/images/gombe-ss-logo-144x144.png",
+            "sizes": "144x144",
+            "type": "image/png"
+        },
+        {
+            "src": "/assets/images/gombe-ss-logo-152x152.png",
+            "sizes": "152x152",
+            "type": "image/png"
+        },
+        {
+            "src": "/assets/images/gombe-ss-logo-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "/assets/images/gombe-ss-logo-192x192-maskable.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "/assets/images/gombe-ss-logo-384x384.png",
+            "sizes": "384x384",
+            "type": "image/png"
+        },
+        {
+            "src": "/assets/images/gombe-ss-logo-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "/assets/images/gombe-ss-logo-512x512-maskable.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ],
+    "lang": "en",
+    "dir": "ltr",
+    "categories": ["education", "utilities"],
+    "prefer_related_applications": false
+}
