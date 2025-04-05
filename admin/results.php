@@ -709,7 +709,7 @@ require_once "includes/header.php"; // Assumes this outputs starting HTML, head,
         <?php elseif (empty($grouped_results)): ?>
             <div class="card shadow-sm border-0 no-results-card">
                 <div class="card-body no-results">
-                     <i class="bi bi-clipboard-x"></i> {/* Changed icon */}
+                     <i class="bi bi-clipboard-x"></i> 
                     <p class="mb-0 h5">No Results Found</p>
                     <p class="mt-2"><small>No election data matches the current filter criteria.</small></p>
                 </div>

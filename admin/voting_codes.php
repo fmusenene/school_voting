@@ -9,106 +9,24 @@ if (!isset($_SESSION['admin_id'])) {
     exit();
 }
 
-// Function to generate unique voting codes
-function generateVotingCode() {
-    global $conn;
-    $attempts = 0;
-    $max_attempts = 100; // Prevent infinite loop
-    
-    do {
-        // Generate a random 6-digit number
-        $code = str_pad(mt_rand(0, 999999), 6, '0', STR_PAD_LEFT);
-        
-        // Check if code already exists
-        $check_sql = "SELECT COUNT(*) FROM voting_codes WHERE code = ?";
-        $check_stmt = $conn->prepare($check_sql);
-        $check_stmt->execute([$code]);
-        $exists = $check_stmt->fetchColumn() > 0;
-        
-        $attempts++;
-    } while ($exists && $attempts < $max_attempts);
-    
-    if ($attempts >= $max_attempts) {
-        throw new Exception("Unable to generate unique code after $max_attempts attempts");
-    }
-    
-    return $code;
-}
-
-// Handle form submission
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    if (isset($_POST['delete_codes'])) {
-        if (isset($_POST['selected_codes']) && is_array($_POST['selected_codes'])) {
-            $selected_codes = array_map('intval', $_POST['selected_codes']);
-            
-            // Check if any of the selected codes have been used
-            $check_used_sql = "SELECT COUNT(*) FROM voting_codes vc 
-                             INNER JOIN votes v ON vc.id = v.voting_code_id 
-                             WHERE vc.id IN (" . implode(',', array_fill(0, count($selected_codes), '?')) . ")";
-            $check_stmt = $conn->prepare($check_used_sql);
-            $check_stmt->execute($selected_codes);
-            $used_count = $check_stmt->fetchColumn();
-            
-            if ($used_count > 0) {
-                $error = "Cannot delete used voting codes. Please unselect used codes and try again.";
-            } else {
-                $placeholders = str_repeat('?,', count($selected_codes) - 1) . '?';
-                
-                // Delete the selected unused codes
-                $delete_sql = "DELETE FROM voting_codes WHERE id IN ($placeholders)";
-                $delete_stmt = $conn->prepare($delete_sql);
-                if ($delete_stmt->execute($selected_codes)) {
-                    $success = "Selected voting codes deleted successfully!";
-                } else {
-                    $error = "Error deleting voting codes";
-                }
-            }
-        }
-    } else if (isset($_POST['action']) && $_POST['action'] === 'create') {
-        $election_id = $_POST['election_id'];
-        $quantity = (int)$_POST['quantity'];
-        
-        try {
-            $conn->beginTransaction();
-            
-            // Generate unique voting codes
-            $insert_sql = "INSERT INTO voting_codes (code, election_id) VALUES (?, ?)";
-            $insert_stmt = $conn->prepare($insert_sql);
-            
-            $generated_codes = [];
-            $success_count = 0;
-            
-            for ($i = 0; $i < $quantity; $i++) {
-                try {
-                    $code = generateVotingCode();
-                    $insert_stmt->execute([$code, $election_id]);
-                    $generated_codes[] = $code;
-                    $success_count++;
-                } catch (Exception $e) {
-                    continue;
-                }
-            }
-            
-            $conn->commit();
-            
-            if ($success_count > 0) {
-                $success = "$success_count unique voting codes generated successfully!";
-            } else {
-                $error = "Failed to generate any unique codes. Please try again.";
-            }
-        } catch (PDOException $e) {
-            $conn->rollBack();
-            $error = "Error generating voting codes: " . $e->getMessage();
-        }
-    }
-}
+// --- Initial Fetch for Filters & Basic Info ---
+$elections = [];
+$positions_for_filter = []; // Positions for the filter dropdown
+$candidates = [];
+$stats = ['total_candidates' => 0, 'total_positions' => 0, 'total_votes' => 0];
+$fetch_error = null;
+$selected_election_id = isset($_GET['election_id']) ? (int)$_GET['election_id'] : null;
 
 // Get all elections for the dropdown
 $elections_sql = "SELECT * FROM elections ORDER BY title";
-$elections = $conn->query($elections_sql)->fetchAll(PDO::FETCH_ASSOC);
-
-// Get selected election ID from URL
-$selected_election_id = isset($_GET['election_id']) ? (int)$_GET['election_id'] : null;
+$result = mysqli_query($conn, $elections_sql);
+if ($result) {
+    while ($row = mysqli_fetch_assoc($result)) {
+        $elections[] = $row;
+    }
+} else {
+    error_log("Error fetching elections: " . mysqli_error($conn));
+}
 
 // Pagination settings
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
@@ -118,26 +36,23 @@ $offset = ($page - 1) * $items_per_page;
 // Get total records for pagination
 $count_sql = "SELECT COUNT(*) as total FROM voting_codes vc WHERE 1=1";
 if ($selected_election_id) {
-    $count_sql .= " AND vc.election_id = :election_id";
+    $count_sql .= " AND vc.election_id = " . intval($selected_election_id);
 }
-
-$count_stmt = $conn->prepare($count_sql);
-if ($selected_election_id) {
-    $count_stmt->bindValue(':election_id', $selected_election_id, PDO::PARAM_INT);
+$count_result = mysqli_query($conn, $count_sql);
+if ($count_result) {
+    $row = mysqli_fetch_assoc($count_result);
+    $total_records = (int)$row['total'];
+} else {
+    error_log("Count query error: " . mysqli_error($conn));
+    $total_records = 0;
 }
-$count_stmt->execute();
-$total_records = $count_stmt->fetch(PDO::FETCH_ASSOC)['total'];
-
-// Calculate pagination values
 $total_pages = ceil($total_records / $items_per_page);
-$page = max(1, min($page, $total_pages)); // Ensure page is within valid range
+$page = max(1, min($page, $total_pages));
 $start_record = (($page - 1) * $items_per_page) + 1;
 $end_record = min($start_record + $items_per_page - 1, $total_records);
-
-// Debug information
 error_log("Pagination Info: Page=$page, Items per page=$items_per_page, Total records=$total_records");
 
-// Modify the main query to include pagination
+// Build main query for voting codes with pagination
 $voting_codes_sql = "SELECT 
     vc.*, 
     e.title as election_title,
@@ -152,67 +67,44 @@ FROM voting_codes vc
 LEFT JOIN elections e ON vc.election_id = e.id
 LEFT JOIN votes v ON vc.id = v.voting_code_id";
 
-// Add WHERE clause if election is selected
 if ($selected_election_id) {
-    $voting_codes_sql .= " WHERE vc.election_id = :election_id";
+    $voting_codes_sql .= " WHERE vc.election_id = " . intval($selected_election_id);
 }
 
 $voting_codes_sql .= " GROUP BY vc.id
 ORDER BY vc.created_at DESC
-LIMIT :limit OFFSET :offset";
+LIMIT " . intval($items_per_page) . " OFFSET " . intval($offset);
 
-try {
-    $stmt = $conn->prepare($voting_codes_sql);
-    
-    // Bind parameters using named parameters
-    if ($selected_election_id) {
-        $stmt->bindValue(':election_id', $selected_election_id, PDO::PARAM_INT);
+$voting_codes = [];
+$result = mysqli_query($conn, $voting_codes_sql);
+if ($result) {
+    while ($row = mysqli_fetch_assoc($result)) {
+        $voting_codes[] = $row;
     }
-    $stmt->bindValue(':limit', (int)$items_per_page, PDO::PARAM_INT);
-    $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
-    
-    // Execute the query
-    $stmt->execute();
-$voting_codes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Debug information
-    error_log("Query executed successfully");
-    error_log("Number of records returned: " . count($voting_codes));
-    
-} catch (PDOException $e) {
-    error_log("Query execution error: " . $e->getMessage());
-    error_log("SQL Query: " . $voting_codes_sql);
-    $error = "Error loading voting codes: " . $e->getMessage();
+    error_log("Query executed successfully. Number of records returned: " . count($voting_codes));
+} else {
+    error_log("Query execution error: " . mysqli_error($conn));
+    $error = "Error loading voting codes: " . mysqli_error($conn);
     $voting_codes = [];
 }
 
-// Get statistics
+// Get statistics for voting codes
 $stats_sql = "SELECT 
     COUNT(DISTINCT vc.id) as total_codes,
     COUNT(DISTINCT CASE WHEN v.id IS NOT NULL THEN vc.id END) as used_codes
 FROM voting_codes vc
 LEFT JOIN votes v ON vc.id = v.voting_code_id";
-
 if ($selected_election_id) {
-    $stats_sql .= " WHERE vc.election_id = :election_id";
+    $stats_sql .= " WHERE vc.election_id = " . intval($selected_election_id);
 }
-
-try {
-    $stats_stmt = $conn->prepare($stats_sql);
-    if ($selected_election_id) {
-        $stats_stmt->bindValue(':election_id', $selected_election_id, PDO::PARAM_INT);
-    }
-    $stats_stmt->execute();
-$stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
-
-// Calculate unused codes
+$result_stats = mysqli_query($conn, $stats_sql);
+if ($result_stats) {
+    $stats = mysqli_fetch_assoc($result_stats);
     $stats['unused_codes'] = $stats['total_codes'] - ($stats['used_codes'] ?? 0);
-
-    // Debug logging
     error_log("Statistics Query: " . $stats_sql);
     error_log("Statistics Results: " . print_r($stats, true));
-} catch (PDOException $e) {
-    error_log("Statistics Error: " . $e->getMessage());
+} else {
+    error_log("Statistics error: " . mysqli_error($conn));
     $stats = [
         'total_codes' => 0,
         'used_codes' => 0,
@@ -221,11 +113,10 @@ $stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
 }
 
 // Calculate percentages
-$used_percentage = $stats['total_codes'] > 0 ? 
-    round(($stats['used_codes'] / $stats['total_codes']) * 100, 1) : 0;
-$unused_percentage = $stats['total_codes'] > 0 ? 
-    round(($stats['unused_codes'] / $stats['total_codes']) * 100, 1) : 0;
+$used_percentage = $stats['total_codes'] > 0 ? round(($stats['used_codes'] / $stats['total_codes']) * 100, 1) : 0;
+$unused_percentage = $stats['total_codes'] > 0 ? round(($stats['unused_codes'] / $stats['total_codes']) * 100, 1) : 0;
 ?>
+
 
 <div class="container-fluid">
     <!-- Header Section -->

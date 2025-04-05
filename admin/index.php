@@ -17,27 +17,33 @@ $elections_sql = "SELECT
     SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
     SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
 FROM elections";
-$elections_result = $conn->query($elections_sql)->fetch(PDO::FETCH_ASSOC);
+$elections_query = mysqli_query($conn, $elections_sql);
+$elections_result = mysqli_fetch_assoc($elections_query);
 
 // Get total positions
 $positions_sql = "SELECT COUNT(*) as total FROM positions";
-$positions_total = $conn->query($positions_sql)->fetch(PDO::FETCH_ASSOC)['total'];
+$positions_query = mysqli_query($conn, $positions_sql);
+$positions_total = mysqli_fetch_assoc($positions_query)['total'];
 
 // Get total candidates
 $candidates_sql = "SELECT COUNT(*) as total FROM candidates";
-$candidates_total = $conn->query($candidates_sql)->fetch(PDO::FETCH_ASSOC)['total'];
+$candidates_query = mysqli_query($conn, $candidates_sql);
+$candidates_total = mysqli_fetch_assoc($candidates_query)['total'];
 
 // Get total voting codes used
 $codes_sql = "SELECT COUNT(*) as total FROM voting_codes WHERE EXISTS (SELECT 1 FROM votes WHERE voting_code_id = voting_codes.id)";
-$codes_used = $conn->query($codes_sql)->fetch(PDO::FETCH_ASSOC)['total'];
+$codes_query = mysqli_query($conn, $codes_sql);
+$codes_used = mysqli_fetch_assoc($codes_query)['total'];
 
 // Get total voting codes
 $total_codes_sql = "SELECT COUNT(*) as total FROM voting_codes";
-$total_codes = $conn->query($total_codes_sql)->fetch(PDO::FETCH_ASSOC)['total'];
+$total_codes_query = mysqli_query($conn, $total_codes_sql);
+$total_codes = mysqli_fetch_assoc($total_codes_query)['total'];
 
 // Get total votes cast
 $votes_sql = "SELECT COUNT(*) as total FROM votes";
-$total_votes = $conn->query($votes_sql)->fetch(PDO::FETCH_ASSOC)['total'];
+$votes_query = mysqli_query($conn, $votes_sql);
+$total_votes = mysqli_fetch_assoc($votes_query)['total'];
 
 // Get recent voting activity with more details
 $recent_votes_sql = "SELECT 
@@ -63,20 +69,26 @@ LIMIT 5";
 try {
     // First, check if there are any votes at all
     $check_votes_sql = "SELECT COUNT(*) as count FROM votes";
-    $votes_count = $conn->query($check_votes_sql)->fetch(PDO::FETCH_ASSOC);
+    $check_votes_query = mysqli_query($conn, $check_votes_sql);
+    $votes_count = mysqli_fetch_assoc($check_votes_query);
     echo "<!-- Debug: Total votes in database: " . $votes_count['count'] . " -->";
 
     // If we have votes, let's check one directly
     if ($votes_count['count'] > 0) {
         $single_vote_sql = "SELECT * FROM votes LIMIT 1";
-        $single_vote = $conn->query($single_vote_sql)->fetch(PDO::FETCH_ASSOC);
+        $single_vote_query = mysqli_query($conn, $single_vote_sql);
+        $single_vote = mysqli_fetch_assoc($single_vote_query);
         echo "<!-- Debug: Sample vote - " . json_encode($single_vote) . " -->";
     }
 
     // Now try to get the recent votes with all details
-    $stmt = $conn->prepare($recent_votes_sql);
-    $stmt->execute();
-    $recent_votes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $recent_votes_result = mysqli_query($conn, $recent_votes_sql);
+    $recent_votes = [];
+    if ($recent_votes_result) {
+        while ($row = mysqli_fetch_assoc($recent_votes_result)) {
+            $recent_votes[] = $row;
+        }
+    }
     
     echo "<!-- Debug: Number of recent votes fetched: " . count($recent_votes) . " -->";
     
@@ -91,11 +103,12 @@ try {
         ];
         
         foreach ($tables_check as $table => $query) {
-            $count = $conn->query($query)->fetch(PDO::FETCH_ASSOC)['count'];
+            $result = mysqli_query($conn, $query);
+            $count = mysqli_fetch_assoc($result)['count'];
             echo "<!-- Debug: {$table} table count: {$count} -->";
         }
     }
-} catch (PDOException $e) {
+} catch (Exception $e) {
     error_log("Error fetching recent votes: " . $e->getMessage());
     echo "<!-- Debug: SQL Error: " . htmlspecialchars($e->getMessage()) . " -->";
     $recent_votes = [];
@@ -496,4 +509,4 @@ document.getElementById('start_date').addEventListener('change', function() {
 });
 </script>
 
-<?php require_once "includes/footer.php"; ?> 
+<?php require_once "includes/footer.php"; ?>

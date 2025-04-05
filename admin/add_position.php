@@ -17,9 +17,9 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // Get and validate form data
-$title = trim($_POST['title'] ?? '');
-$election_id = trim($_POST['election_id'] ?? '');
-$description = trim($_POST['description'] ?? '');
+$title = mysqli_real_escape_string($conn, trim($_POST['title'] ?? ''));
+$election_id = mysqli_real_escape_string($conn, trim($_POST['election_id'] ?? ''));
+$description = mysqli_real_escape_string($conn, trim($_POST['description'] ?? ''));
 
 if (empty($title) || empty($election_id) || empty($description)) {
     header('Content-Type: application/json');
@@ -27,22 +27,20 @@ if (empty($title) || empty($election_id) || empty($description)) {
     exit();
 }
 
-try {
-    // Insert new position
-    $sql = "INSERT INTO positions (title, election_id, description) VALUES (?, ?, ?)";
-    $stmt = $conn->prepare($sql);
-    $stmt->execute([$title, $election_id, $description]);
+// Insert new position
+$sql = "INSERT INTO positions (title, election_id, description) VALUES ('$title', '$election_id', '$description')";
 
+if (mysqli_query($conn, $sql)) {
     header('Content-Type: application/json');
     echo json_encode([
         'success' => true,
         'message' => 'Position added successfully',
-        'position_id' => $conn->lastInsertId()
+        'position_id' => mysqli_insert_id($conn)
     ]);
-} catch (PDOException $e) {
+} else {
     header('Content-Type: application/json');
     echo json_encode([
         'success' => false,
-        'message' => 'Database error: ' . $e->getMessage()
+        'message' => 'Database error: ' . mysqli_error($conn)
     ]);
-} 
+}

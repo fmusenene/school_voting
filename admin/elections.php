@@ -10,24 +10,20 @@ if (!isset($_SESSION['admin_id'])) {
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $title = trim($_POST['title']);
-    $description = trim($_POST['description']);
-            $start_date = $_POST['start_date'];
-            $end_date = $_POST['end_date'];
-    $status = $_POST['status'];
+    // Sanitize inputs
+    $title = mysqli_real_escape_string($conn, trim($_POST['title']));
+    $description = mysqli_real_escape_string($conn, trim($_POST['description']));
+    $start_date = mysqli_real_escape_string($conn, $_POST['start_date']);
+    $end_date = mysqli_real_escape_string($conn, $_POST['end_date']);
+    $status = mysqli_real_escape_string($conn, $_POST['status']);
+
+    $sql = "INSERT INTO elections (title, description, start_date, end_date, status) 
+            VALUES ('$title', '$description', '$start_date', '$end_date', '$status')";
     
-    try {
-        $sql = "INSERT INTO elections (title, description, start_date, end_date, status) 
-                VALUES (?, ?, ?, ?, ?)";
-        $stmt = $conn->prepare($sql);
-        
-            if ($stmt->execute([$title, $description, $start_date, $end_date, $status])) {
-                $_SESSION['success'] = "Election created successfully!";
-            } else {
-            $_SESSION['error'] = "Error creating election";
-        }
-    } catch (PDOException $e) {
-        $_SESSION['error'] = "Database error: " . $e->getMessage();
+    if (mysqli_query($conn, $sql)) {
+        $_SESSION['success'] = "Election created successfully!";
+    } else {
+        $_SESSION['error'] = "Error creating election: " . mysqli_error($conn);
     }
     
     header("Location: elections.php");
@@ -41,7 +37,8 @@ $stats_sql = "SELECT
     SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
     SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
 FROM elections";
-$stats = $conn->query($stats_sql)->fetch(PDO::FETCH_ASSOC);
+$stats_result = mysqli_query($conn, $stats_sql);
+$stats = mysqli_fetch_assoc($stats_result);
 
 // Get all elections with their positions and votes count
 $elections_sql = "SELECT 
@@ -54,7 +51,11 @@ LEFT JOIN candidates c ON p.id = c.position_id
 LEFT JOIN votes v ON c.id = v.candidate_id
 GROUP BY e.id
 ORDER BY e.created_at DESC";
-$elections = $conn->query($elections_sql)->fetchAll(PDO::FETCH_ASSOC);
+$elections_result = mysqli_query($conn, $elections_sql);
+$elections = [];
+while ($row = mysqli_fetch_assoc($elections_result)) {
+    $elections[] = $row;
+}
 
 require_once "includes/header.php";
 ?>
@@ -566,7 +567,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Handle form submission
+    // Handle form submission for editing
     document.getElementById('saveElectionChanges').addEventListener('click', function() {
         const form = document.getElementById('editElectionForm');
         const formData = new FormData(form);
@@ -654,4 +655,4 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script> 
 
-<?php require_once "includes/footer.php"; ?> 
+<?php require_once "includes/footer.php"; ?>

@@ -31,47 +31,55 @@ $elections = [];
 $positions = [];
 $stats = ['total_positions' => 0, 'total_candidates' => 0, 'total_votes' => 0]; // Simplified stats
 $fetch_error = null;
-$selected_election = isset($_GET['election']) && $_GET['election'] !== 'all' ? (int)$_GET['election'] : 'all'; // Get selected election filter
+$selected_election = isset($_GET['election']) && $_GET['election'] !== 'all' ? (int)$_GET['election'] : 'all';
 
-try {
-    // Get all elections for the filter dropdown
-    $elections_sql = "SELECT id, title FROM elections ORDER BY start_date DESC, title ASC";
-    $elections = $conn->query($elections_sql)->fetchAll(PDO::FETCH_ASSOC);
+// Get all elections for the filter dropdown
+$elections_sql = "SELECT id, title FROM elections ORDER BY start_date DESC, title ASC";
+$result = mysqli_query($conn, $elections_sql);
+if ($result) {
+    while ($row = mysqli_fetch_assoc($result)) {
+        $elections[] = $row;
+    }
+} else {
+    error_log("Elections Query Error: " . mysqli_error($conn));
+    $fetch_error = "Could not load elections data due to a database issue.";
+}
 
-    // Base SQL for positions
-    $sql_positions = "SELECT p.id, p.title, p.description, p.election_id, e.title as election_title,
+// Base SQL for positions
+$sql_positions = "SELECT p.id, p.title, p.description, p.election_id, e.title as election_title,
                (SELECT COUNT(*) FROM candidates c WHERE c.position_id = p.id) as candidate_count
                FROM positions p
                LEFT JOIN elections e ON p.election_id = e.id";
+if ($selected_election !== 'all') {
+    // Since $selected_election is an integer, we can directly insert it
+    $sql_positions .= " WHERE p.election_id = " . intval($selected_election);
+}
+$sql_positions .= " ORDER BY e.start_date DESC, p.title ASC";
 
-    $params = [];
-    if ($selected_election !== 'all') {
-        $sql_positions .= " WHERE p.election_id = :election_id";
-        $params[':election_id'] = $selected_election;
+$result_positions = mysqli_query($conn, $sql_positions);
+if ($result_positions) {
+    while ($row = mysqli_fetch_assoc($result_positions)) {
+        $positions[] = $row;
     }
-    $sql_positions .= " ORDER BY e.start_date DESC, p.title ASC";
-
-    $stmt_positions = $conn->prepare($sql_positions);
-    $stmt_positions->execute($params);
-    $positions = $stmt_positions->fetchAll(PDO::FETCH_ASSOC);
-
-    // Calculate overall stats based on fetched positions (or query separately if preferred)
-    $stats['total_positions'] = count($positions);
-    foreach ($positions as $pos) {
-        $stats['total_candidates'] += $pos['candidate_count'];
-        // Note: Total votes are not calculated here for performance; use Results page.
-    }
-    // If you still need total votes for the card, query it separately:
-    $stats['total_votes'] = (int)$conn->query("SELECT COUNT(*) FROM votes")->fetchColumn();
-
-
-} catch (PDOException $e) {
-    error_log("Positions Page Error: " . $e->getMessage());
+} else {
+    error_log("Positions Query Error: " . mysqli_error($conn));
     $fetch_error = "Could not load position data due to a database issue.";
-    // Reset arrays on error
-    $elections = [];
     $positions = [];
-    $stats = ['total_positions' => 0, 'total_candidates' => 0, 'total_votes' => 0];
+}
+
+// Calculate overall stats based on fetched positions
+$stats['total_positions'] = count($positions);
+foreach ($positions as $pos) {
+    $stats['total_candidates'] += $pos['candidate_count'];
+}
+// If you still need total votes for the card, query it separately:
+$votes_result = mysqli_query($conn, "SELECT COUNT(*) as total FROM votes");
+if ($votes_result) {
+    $row = mysqli_fetch_assoc($votes_result);
+    $stats['total_votes'] = (int)$row['total'];
+} else {
+    error_log("Votes Query Error: " . mysqli_error($conn));
+    $stats['total_votes'] = 0;
 }
 
 // Include header AFTER data fetching
@@ -80,69 +88,308 @@ require_once "includes/header.php";
 
 <style nonce="<?php echo $nonce; ?>">
     :root {
-        --primary-hue: 226; --primary-color: hsl(var(--primary-hue), 76%, 58%); --primary-light: hsl(var(--primary-hue), 76%, 95%); --primary-dark: hsl(var(--primary-hue), 70%, 48%);
-        --secondary-color: #858796; --success-color: #1cc88a; --info-color: #36b9cc; --warning-color: #f6c23e; --danger-color: #e74a3b;
-        --light-color: #f8f9fc; --white-color: #fff; --dark-color: #5a5c69; --gray-100: #f8f9fc; --gray-200: #eaecf4; --gray-300: #dddfeb; --gray-400: #d1d3e2; --gray-500: #b7b9cc; --gray-600: #858796; --gray-700: #6e707e; --gray-800: #5a5c69; --gray-900: #3a3b45;
-        --font-family-primary: "Poppins", sans-serif; --font-family-secondary: "Nunito", sans-serif;
-        --shadow-sm: 0 .125rem .25rem rgba(0,0,0,.075); --shadow: 0 .15rem 1.75rem 0 rgba(58,59,69,.15); --border-radius: .35rem; --border-radius-lg: .5rem;
+        --primary-hue: 226;
+        --primary-color: hsl(var(--primary-hue), 76%, 58%);
+        --primary-light: hsl(var(--primary-hue), 76%, 95%);
+        --primary-dark: hsl(var(--primary-hue), 70%, 48%);
+        --secondary-color: #858796;
+        --success-color: #1cc88a;
+        --info-color: #36b9cc;
+        --warning-color: #f6c23e;
+        --danger-color: #e74a3b;
+        --light-color: #f8f9fc;
+        --white-color: #fff;
+        --dark-color: #5a5c69;
+        --gray-100: #f8f9fc;
+        --gray-200: #eaecf4;
+        --gray-300: #dddfeb;
+        --gray-400: #d1d3e2;
+        --gray-500: #b7b9cc;
+        --gray-600: #858796;
+        --gray-700: #6e707e;
+        --gray-800: #5a5c69;
+        --gray-900: #3a3b45;
+        --font-family-primary: "Poppins", sans-serif;
+        --font-family-secondary: "Nunito", sans-serif;
+        --shadow-sm: 0 .125rem .25rem rgba(0, 0, 0, .075);
+        --shadow: 0 .15rem 1.75rem 0 rgba(58, 59, 69, .15);
+        --border-radius: .35rem;
+        --border-radius-lg: .5rem;
     }
-    body { font-family: var(--font-family-secondary); background-color: var(--light-color); font-size: 0.95rem; }
-    .container-fluid { padding: 1.5rem 2rem; }
+
+    body {
+        font-family: var(--font-family-secondary);
+        background-color: var(--light-color);
+        font-size: 0.95rem;
+    }
+
+    .container-fluid {
+        padding: 1.5rem 2rem;
+    }
 
     /* Page Header */
-    .page-header { margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color); }
-    .page-header h1 { color: var(--primary-dark); font-family: var(--font-family-primary); font-weight: 700; }
-    .page-header .btn { box-shadow: var(--shadow-sm); font-weight: 600; font-size: 0.875rem; }
+    .page-header {
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .page-header h1 {
+        color: var(--primary-dark);
+        font-family: var(--font-family-primary);
+        font-weight: 700;
+    }
+
+    .page-header .btn {
+        box-shadow: var(--shadow-sm);
+        font-weight: 600;
+        font-size: 0.875rem;
+    }
 
     /* Stats Cards */
-    .stats-card { transition: all 0.25s ease-out; border: none; border-left: 4px solid var(--primary-color); border-radius: var(--border-radius); background-color: var(--white-color); box-shadow: var(--shadow-sm); height: 100%; }
-    .stats-card .card-body { padding: 1.1rem 1.25rem; position: relative;}
-    .stats-card:hover { transform: translateY(-3px) scale(1.01); box-shadow: var(--shadow); }
-    .stats-card-icon { font-size: 1.8rem; opacity: 0.15; position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); transition: all .3s ease; }
-    .stats-card:hover .stats-card-icon { opacity: 0.25; transform: translateY(-50%) scale(1.1); }
-    .stats-card .stat-label { font-size: .7rem; font-weight: 700; text-transform: uppercase; margin-bottom: .1rem; color: var(--secondary-color); letter-spacing: .5px;}
-    .stats-card .stat-value { font-size: 1.9rem; font-weight: 700; line-height: 1.1; color: var(--dark-color); }
+    .stats-card {
+        transition: all 0.25s ease-out;
+        border: none;
+        border-left: 4px solid var(--primary-color);
+        border-radius: var(--border-radius);
+        background-color: var(--white-color);
+        box-shadow: var(--shadow-sm);
+        height: 100%;
+    }
+
+    .stats-card .card-body {
+        padding: 1.1rem 1.25rem;
+        position: relative;
+    }
+
+    .stats-card:hover {
+        transform: translateY(-3px) scale(1.01);
+        box-shadow: var(--shadow);
+    }
+
+    .stats-card-icon {
+        font-size: 1.8rem;
+        opacity: 0.15;
+        position: absolute;
+        right: 1rem;
+        top: 50%;
+        transform: translateY(-50%);
+        transition: all .3s ease;
+    }
+
+    .stats-card:hover .stats-card-icon {
+        opacity: 0.25;
+        transform: translateY(-50%) scale(1.1);
+    }
+
+    .stats-card .stat-label {
+        font-size: .7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        margin-bottom: .1rem;
+        color: var(--secondary-color);
+        letter-spacing: .5px;
+    }
+
+    .stats-card .stat-value {
+        font-size: 1.9rem;
+        font-weight: 700;
+        line-height: 1.1;
+        color: var(--dark-color);
+    }
+
     /* Colors */
-    .stats-card.border-left-primary { border-left-color: var(--primary-color); } .stats-card.border-left-primary .stats-card-icon { color: var(--primary-color); }
-    .stats-card.border-left-success { border-left-color: var(--success-color); } .stats-card.border-left-success .stats-card-icon { color: var(--success-color); }
-    .stats-card.border-left-warning { border-left-color: var(--warning-color); } .stats-card.border-left-warning .stats-card-icon { color: var(--warning-color); }
+    .stats-card.border-left-primary {
+        border-left-color: var(--primary-color);
+    }
+
+    .stats-card.border-left-primary .stats-card-icon {
+        color: var(--primary-color);
+    }
+
+    .stats-card.border-left-success {
+        border-left-color: var(--success-color);
+    }
+
+    .stats-card.border-left-success .stats-card-icon {
+        color: var(--success-color);
+    }
+
+    .stats-card.border-left-warning {
+        border-left-color: var(--warning-color);
+    }
+
+    .stats-card.border-left-warning .stats-card-icon {
+        color: var(--warning-color);
+    }
 
     /* Filter Bar */
-    .filter-bar { background-color: var(--white-color); padding: .75rem 1.25rem; border-radius: var(--border-radius); box-shadow: var(--shadow-sm); border: 1px solid var(--border-color); }
-    .filter-bar label { font-weight: 600; color: var(--primary-dark); }
-    .filter-bar .form-select { max-width: 300px; font-size: 0.9rem; }
+    .filter-bar {
+        background-color: var(--white-color);
+        padding: .75rem 1.25rem;
+        border-radius: var(--border-radius);
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--border-color);
+    }
+
+    .filter-bar label {
+        font-weight: 600;
+        color: var(--primary-dark);
+    }
+
+    .filter-bar .form-select {
+        max-width: 300px;
+        font-size: 0.9rem;
+    }
 
     /* Positions Table Card */
-    .positions-card { border: none; border-radius: var(--border-radius-lg); box-shadow: var(--shadow); }
-    .positions-card .card-header { background-color: var(--white-color); border-bottom: 1px solid var(--border-color); font-weight: 700; color: var(--primary-dark); padding: 1rem 1.25rem; border-top-left-radius: var(--border-radius-lg); border-top-right-radius: var(--border-radius-lg); }
-    .positions-table { margin-bottom: 0; }
-    .positions-table thead th { background-color: var(--gray-100); border-bottom: 2px solid var(--border-color); border-top: none; font-size: .8rem; font-weight: 700; text-transform: uppercase; color: var(--gray-600); padding: .75rem 1rem; white-space: nowrap;}
-    .positions-table tbody td { padding: .8rem 1rem; vertical-align: middle; border-top: 1px solid var(--border-color); font-size: 0.9rem; }
-    .positions-table tbody tr:first-child td { border-top: none; }
-    .positions-table tbody tr:hover { background-color: var(--primary-light); }
-    .positions-table .position-title { font-weight: 600; color: var(--dark-color); }
-    .positions-table .election-title { font-size: 0.85rem; color: var(--secondary-color); }
-    .positions-table .action-buttons .btn { padding: 0.2rem 0.5rem; font-size: 0.8rem; margin-left: 0.25rem; }
-    .positions-table .badge { font-size: 0.8rem; padding: .4em .6em;}
-    .positions-table .no-positions td { text-align: center; padding: 2.5rem; }
-    .positions-table .no-positions i { font-size: 2.5rem; margin-bottom: .75rem; display: block; color: var(--gray-400); }
-    .positions-table .no-positions p { color: var(--gray-500); font-size: 1rem;}
+    .positions-card {
+        border: none;
+        border-radius: var(--border-radius-lg);
+        box-shadow: var(--shadow);
+    }
+
+    .positions-card .card-header {
+        background-color: var(--white-color);
+        border-bottom: 1px solid var(--border-color);
+        font-weight: 700;
+        color: var(--primary-dark);
+        padding: 1rem 1.25rem;
+        border-top-left-radius: var(--border-radius-lg);
+        border-top-right-radius: var(--border-radius-lg);
+    }
+
+    .positions-table {
+        margin-bottom: 0;
+    }
+
+    .positions-table thead th {
+        background-color: var(--gray-100);
+        border-bottom: 2px solid var(--border-color);
+        border-top: none;
+        font-size: .8rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: var(--gray-600);
+        padding: .75rem 1rem;
+        white-space: nowrap;
+    }
+
+    .positions-table tbody td {
+        padding: .8rem 1rem;
+        vertical-align: middle;
+        border-top: 1px solid var(--border-color);
+        font-size: 0.9rem;
+    }
+
+    .positions-table tbody tr:first-child td {
+        border-top: none;
+    }
+
+    .positions-table tbody tr:hover {
+        background-color: var(--primary-light);
+    }
+
+    .positions-table .position-title {
+        font-weight: 600;
+        color: var(--dark-color);
+    }
+
+    .positions-table .election-title {
+        font-size: 0.85rem;
+        color: var(--secondary-color);
+    }
+
+    .positions-table .action-buttons .btn {
+        padding: 0.2rem 0.5rem;
+        font-size: 0.8rem;
+        margin-left: 0.25rem;
+    }
+
+    .positions-table .badge {
+        font-size: 0.8rem;
+        padding: .4em .6em;
+    }
+
+    .positions-table .no-positions td {
+        text-align: center;
+        padding: 2.5rem;
+    }
+
+    .positions-table .no-positions i {
+        font-size: 2.5rem;
+        margin-bottom: .75rem;
+        display: block;
+        color: var(--gray-400);
+    }
+
+    .positions-table .no-positions p {
+        color: var(--gray-500);
+        font-size: 1rem;
+    }
 
     /* Modals */
-    .modal-header { background-color: var(--primary-light); border-bottom: 1px solid var(--border-color); }
-    .modal-title { font-family: var(--font-family-primary); color: var(--primary-dark); }
-    .modal-footer { background-color: var(--gray-100); border-top: 1px solid var(--border-color); }
-    .was-validated .form-control:invalid, .form-control.is-invalid { border-color: var(--danger-color); background-image: none;}
-    .was-validated .form-control:invalid:focus, .form-control.is-invalid:focus { box-shadow: 0 0 0 .25rem rgba(231, 74, 59, .25); }
+    .modal-header {
+        background-color: var(--primary-light);
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .modal-title {
+        font-family: var(--font-family-primary);
+        color: var(--primary-dark);
+    }
+
+    .modal-footer {
+        background-color: var(--gray-100);
+        border-top: 1px solid var(--border-color);
+    }
+
+    .was-validated .form-control:invalid,
+    .form-control.is-invalid {
+        border-color: var(--danger-color);
+        background-image: none;
+    }
+
+    .was-validated .form-control:invalid:focus,
+    .form-control.is-invalid:focus {
+        box-shadow: 0 0 0 .25rem rgba(231, 74, 59, .25);
+    }
 
     /* Notification Toast (Copied from previous) */
-    .notification-toast { min-width: 300px; border-radius: var(--border-radius); box-shadow: var(--shadow-lg); padding: 0;}
-    .notification-toast .notification-content { display: flex; align-items: center; padding: .75rem 1rem;}
-    .notification-toast .toast-body { padding: 0; color: white; font-weight: 500; flex-grow: 1;}
-    .notification-toast .notification-icon { font-size: 1.3rem; margin-right: .75rem; line-height: 1;}
-    .notification-toast .btn-close-white { filter: brightness(0) invert(1); opacity: 0.8;}
-    .notification-toast .btn-close-white:hover { opacity: 1;}
+    .notification-toast {
+        min-width: 300px;
+        border-radius: var(--border-radius);
+        box-shadow: var(--shadow-lg);
+        padding: 0;
+    }
 
+    .notification-toast .notification-content {
+        display: flex;
+        align-items: center;
+        padding: .75rem 1rem;
+    }
+
+    .notification-toast .toast-body {
+        padding: 0;
+        color: white;
+        font-weight: 500;
+        flex-grow: 1;
+    }
+
+    .notification-toast .notification-icon {
+        font-size: 1.3rem;
+        margin-right: .75rem;
+        line-height: 1;
+    }
+
+    .notification-toast .btn-close-white {
+        filter: brightness(0) invert(1);
+        opacity: 0.8;
+    }
+
+    .notification-toast .btn-close-white:hover {
+        opacity: 1;
+    }
 </style>
 
 <div class="container-fluid py-4">
@@ -153,7 +400,7 @@ require_once "includes/header.php";
         </button>
     </div>
 
-     <?php if ($fetch_error): ?>
+    <?php if ($fetch_error): ?>
         <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
             <i class="bi bi-exclamation-triangle-fill me-2"></i> <?php echo htmlspecialchars($fetch_error); ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
@@ -166,10 +413,10 @@ require_once "includes/header.php";
                 <div class="card-body">
                     <div>
                         <div class="stat-label text-primary">Total Positions</div>
-                         
+
                         <div class="stat-value" id="stat-total-positions">0</div>
                     </div>
-                     <i class="bi bi-tag-fill stats-card-icon"></i>
+                    <i class="bi bi-tag-fill stats-card-icon"></i>
                 </div>
             </div>
         </div>
@@ -178,26 +425,26 @@ require_once "includes/header.php";
                 <div class="card-body">
                     <div>
                         <div class="stat-label text-success">Total Candidates</div>
-                         
+
                         <div class="stat-value" id="stat-total-candidates">0</div>
                     </div>
                     <div class="stat-detail">Across all positions</div>
-                     <i class="bi bi-people-fill stats-card-icon"></i>
+                    <i class="bi bi-people-fill stats-card-icon"></i>
                 </div>
             </div>
         </div>
         <div class="col-lg-4 col-md-6 mb-3">
-             <div class="stats-card border-left-warning h-100">
-                 <div class="card-body">
+            <div class="stats-card border-left-warning h-100">
+                <div class="card-body">
                     <div>
                         <div class="stat-label text-warning">Total Votes Cast</div>
-                        
+
                         <div class="stat-value" id="stat-total-votes">0</div>
                     </div>
-                     <div class="stat-detail">Across all positions</div>
-                     <i class="bi bi-check2-square stats-card-icon"></i>
-                 </div>
-             </div>
+                    <div class="stat-detail">Across all positions</div>
+                    <i class="bi bi-check2-square stats-card-icon"></i>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -253,19 +500,19 @@ require_once "includes/header.php";
                                     </td>
                                     <td class="text-center text-nowrap action-buttons">
                                         <button type="button" class="btn btn-outline-primary btn-sm edit-position-btn"
-                                                data-position-id="<?php echo $position['id']; ?>"
-                                                data-bs-toggle="tooltip" data-bs-placement="top" title="Edit Position">
+                                            data-position-id="<?php echo $position['id']; ?>"
+                                            data-bs-toggle="tooltip" data-bs-placement="top" title="Edit Position">
                                             <i class="bi bi-pencil-fill"></i>
                                         </button>
                                         <a href="candidates.php?position_id=<?php echo $position['id']; ?>&election_id=<?php echo $position['election_id']; ?>"
-                                           class="btn btn-outline-success btn-sm"
-                                           data-bs-toggle="tooltip" data-bs-placement="top" title="Manage Candidates">
+                                            class="btn btn-outline-success btn-sm"
+                                            data-bs-toggle="tooltip" data-bs-placement="top" title="Manage Candidates">
                                             <i class="bi bi-people-fill"></i>
                                         </a>
                                         <button type="button" class="btn btn-outline-danger btn-sm delete-position-btn"
-                                                data-position-id="<?php echo $position['id']; ?>"
-                                                data-position-title="<?php echo htmlspecialchars($position['title']); ?>"
-                                                data-bs-toggle="tooltip" data-bs-placement="top" title="Delete Position">
+                                            data-position-id="<?php echo $position['id']; ?>"
+                                            data-position-title="<?php echo htmlspecialchars($position['title']); ?>"
+                                            data-bs-toggle="tooltip" data-bs-placement="top" title="Delete Position">
                                             <i class="bi bi-trash3-fill"></i>
                                         </button>
                                     </td>
@@ -286,9 +533,9 @@ require_once "includes/header.php";
                 <h5 class="modal-title" id="newPositionModalLabel"><i class="bi bi-plus-square-fill me-2"></i>Add New Position</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <form id="addPositionForm" method="POST" action="add_position.php" novalidate> 
+            <form id="addPositionForm" method="POST" action="add_position.php" novalidate>
                 <div class="modal-body">
-                     <div id="addModalAlertPlaceholder"></div>
+                    <div id="addModalAlertPlaceholder"></div>
                     <div class="mb-3">
                         <label for="add_title" class="form-label">Position Title*</label>
                         <input type="text" class="form-control" id="add_title" name="title" required>
@@ -303,11 +550,11 @@ require_once "includes/header.php";
                                     <?php echo htmlspecialchars($election['title']); ?>
                                 </option>
                             <?php endforeach; ?>
-                             <?php if(empty($elections)): ?>
-                                 <option value="" disabled>No elections found. Create one first.</option>
-                             <?php endif; ?>
+                            <?php if (empty($elections)): ?>
+                                <option value="" disabled>No elections found. Create one first.</option>
+                            <?php endif; ?>
                         </select>
-                         <div class="invalid-feedback">Please select an election.</div>
+                        <div class="invalid-feedback">Please select an election.</div>
                     </div>
                     <div class="mb-3">
                         <label for="add_description" class="form-label">Description</label>
@@ -330,10 +577,10 @@ require_once "includes/header.php";
                 <h5 class="modal-title" id="editPositionModalLabel"><i class="bi bi-pencil-square me-2"></i>Edit Position</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <form id="editPositionForm" method="POST" novalidate> 
+            <form id="editPositionForm" method="POST" novalidate>
                 <input type="hidden" id="edit_position_id" name="position_id">
-                 <div class="modal-body">
-                     <div id="editModalAlertPlaceholder"></div>
+                <div class="modal-body">
+                    <div id="editModalAlertPlaceholder"></div>
                     <div class="mb-3">
                         <label for="edit_title" class="form-label">Position Title*</label>
                         <input type="text" class="form-control" id="edit_title" name="title" required>
@@ -349,7 +596,7 @@ require_once "includes/header.php";
                                 </option>
                             <?php endforeach; ?>
                         </select>
-                         <div class="invalid-feedback">Please select an election.</div>
+                        <div class="invalid-feedback">Please select an election.</div>
                     </div>
                     <div class="mb-3">
                         <label for="edit_description" class="form-label">Description</label>
@@ -369,7 +616,7 @@ require_once "includes/header.php";
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header bg-danger text-white">
-                 <h5 class="modal-title" id="deleteConfirmModalLabel"><i class="bi bi-exclamation-triangle-fill me-2"></i>Confirm Deletion</h5>
+                <h5 class="modal-title" id="deleteConfirmModalLabel"><i class="bi bi-exclamation-triangle-fill me-2"></i>Confirm Deletion</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body text-center pb-4 pt-4">
@@ -377,9 +624,9 @@ require_once "includes/header.php";
                 <p class="text-danger"><small>This action cannot be undone and may affect associated candidates and votes.</small></p>
                 <input type="hidden" id="deletePositionId">
             </div>
-             <div class="modal-footer justify-content-center">
-                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                 <button type="button" class="btn btn-danger" id="confirmDeleteBtn"><i class="bi bi-trash3-fill me-1"></i>Delete Position</button>
+            <div class="modal-footer justify-content-center">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteBtn"><i class="bi bi-trash3-fill me-1"></i>Delete Position</button>
             </div>
         </div>
     </div>
@@ -398,325 +645,373 @@ require_once "includes/header.php";
 </div>
 
 
-<?php require_once "includes/footer.php"; // Includes closing tags, Bootstrap JS ?>
+<?php require_once "includes/footer.php"; // Includes closing tags, Bootstrap JS 
+?>
 
 <script nonce="<?php echo $nonce; ?>" src="https://unpkg.com/countup.js@2.8.0/dist/countUp.umd.js"></script>
 
 <script nonce="<?php echo $nonce; ?>">
-document.addEventListener('DOMContentLoaded', function () {
+    document.addEventListener('DOMContentLoaded', function() {
 
-    // --- Initialize Bootstrap Tooltips ---
-    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-    const tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl)
-    });
+        // --- Initialize Bootstrap Tooltips ---
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        const tooltipList = tooltipTriggerList.map(function(tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        });
 
-    // --- CountUp Animations ---
-    if (typeof CountUp === 'function') {
-        const countUpOptions = { duration: 2, enableScrollSpy: true, scrollSpyDelay: 50, scrollSpyOnce: true };
-        try {
-            const statsData = <?php echo json_encode($stats); ?>;
-            // Target elements by ID
-            const elPosTotal = document.getElementById('stat-total-positions');
-            const elCandTotal = document.getElementById('stat-total-candidates');
-            const elVotesTotal = document.getElementById('stat-total-votes');
+        // --- CountUp Animations ---
+        if (typeof CountUp === 'function') {
+            const countUpOptions = {
+                duration: 2,
+                enableScrollSpy: true,
+                scrollSpyDelay: 50,
+                scrollSpyOnce: true
+            };
+            try {
+                const statsData = <?php echo json_encode($stats); ?>;
+                // Target elements by ID
+                const elPosTotal = document.getElementById('stat-total-positions');
+                const elCandTotal = document.getElementById('stat-total-candidates');
+                const elVotesTotal = document.getElementById('stat-total-votes');
 
-            if(elPosTotal) new CountUp(elPosTotal, statsData.total_positions || 0, countUpOptions).start();
-            if(elCandTotal) new CountUp(elCandTotal, statsData.total_candidates || 0, countUpOptions).start();
-            if(elVotesTotal) new CountUp(elVotesTotal, statsData.total_votes || 0, countUpOptions).start();
+                if (elPosTotal) new CountUp(elPosTotal, statsData.total_positions || 0, countUpOptions).start();
+                if (elCandTotal) new CountUp(elCandTotal, statsData.total_candidates || 0, countUpOptions).start();
+                if (elVotesTotal) new CountUp(elVotesTotal, statsData.total_votes || 0, countUpOptions).start();
 
-        } catch (e) { console.error("CountUp init error:", e); }
-    } else { console.warn("CountUp library not available."); }
-
-    // --- Notification Toast Function ---
-    const notificationToastEl = document.getElementById('notificationToast');
-    const notificationToast = notificationToastEl ? bootstrap.Toast.getOrCreateInstance(notificationToastEl) : null;
-    const notificationMessageEl = document.getElementById('notificationMessage');
-    const notificationIconEl = notificationToastEl ? notificationToastEl.querySelector('.notification-icon') : null;
-
-    function showNotification(message, type = 'success') {
-        if (!notificationToast || !notificationMessageEl || !notificationIconEl) return;
-
-        // Reset classes
-        notificationToastEl.classList.remove('bg-success', 'bg-danger', 'bg-warning', 'bg-info');
-        notificationIconEl.innerHTML = ''; // Clear previous icon
-
-        // Set message and icon based on type
-        message = String(message || 'An operation completed.').substring(0, 200); // Limit length
-        notificationMessageEl.textContent = message;
-        let iconClass = 'bi-check-circle-fill';
-        let bgClass = 'bg-success';
-
-        if (type === 'danger') {
-            iconClass = 'bi-x-octagon-fill'; bgClass = 'bg-danger';
-        } else if (type === 'warning') {
-            iconClass = 'bi-exclamation-triangle-fill'; bgClass = 'bg-warning text-dark'; // Dark text for warning
-        } else if (type === 'info') {
-             iconClass = 'bi-info-circle-fill'; bgClass = 'bg-info';
+            } catch (e) {
+                console.error("CountUp init error:", e);
+            }
+        } else {
+            console.warn("CountUp library not available.");
         }
 
-        notificationToastEl.classList.add(bgClass);
-        notificationIconEl.innerHTML = `<i class="bi ${iconClass}"></i>`;
-        notificationToast.show();
-    }
+        // --- Notification Toast Function ---
+        const notificationToastEl = document.getElementById('notificationToast');
+        const notificationToast = notificationToastEl ? bootstrap.Toast.getOrCreateInstance(notificationToastEl) : null;
+        const notificationMessageEl = document.getElementById('notificationMessage');
+        const notificationIconEl = notificationToastEl ? notificationToastEl.querySelector('.notification-icon') : null;
 
-    // --- Filter Handling ---
-    const electionFilter = document.getElementById('electionFilter');
-    if(electionFilter) {
-        electionFilter.addEventListener('change', function() {
-            const selectedValue = this.value;
-            // Construct URL preserving other parameters if needed in future
-            const currentUrl = new URL(window.location.href);
-            if (selectedValue === 'all') {
-                 currentUrl.searchParams.delete('election');
-            } else {
-                 currentUrl.searchParams.set('election', selectedValue);
+        function showNotification(message, type = 'success') {
+            if (!notificationToast || !notificationMessageEl || !notificationIconEl) return;
+
+            // Reset classes
+            notificationToastEl.classList.remove('bg-success', 'bg-danger', 'bg-warning', 'bg-info');
+            notificationIconEl.innerHTML = ''; // Clear previous icon
+
+            // Set message and icon based on type
+            message = String(message || 'An operation completed.').substring(0, 200); // Limit length
+            notificationMessageEl.textContent = message;
+            let iconClass = 'bi-check-circle-fill';
+            let bgClass = 'bg-success';
+
+            if (type === 'danger') {
+                iconClass = 'bi-x-octagon-fill';
+                bgClass = 'bg-danger';
+            } else if (type === 'warning') {
+                iconClass = 'bi-exclamation-triangle-fill';
+                bgClass = 'bg-warning text-dark'; // Dark text for warning
+            } else if (type === 'info') {
+                iconClass = 'bi-info-circle-fill';
+                bgClass = 'bg-info';
             }
-            window.location.href = currentUrl.toString();
-        });
-    }
 
-    // --- Modal Instances & Placeholders ---
-    const newPositionModalEl = document.getElementById('newPositionModal');
-    const newPositionModal = newPositionModalEl ? bootstrap.Modal.getOrCreateInstance(newPositionModalEl) : null;
-    const addPositionForm = document.getElementById('addPositionForm');
-    const addPositionSubmitBtn = document.getElementById('addPositionSubmitBtn');
-    const addModalAlertPlaceholder = document.getElementById('addModalAlertPlaceholder');
+            notificationToastEl.classList.add(bgClass);
+            notificationIconEl.innerHTML = `<i class="bi ${iconClass}"></i>`;
+            notificationToast.show();
+        }
 
-    const editPositionModalEl = document.getElementById('editPositionModal');
-    const editPositionModal = editPositionModalEl ? bootstrap.Modal.getOrCreateInstance(editPositionModalEl) : null;
-    const editPositionForm = document.getElementById('editPositionForm');
-    const editPositionSubmitBtn = document.getElementById('editPositionSubmitBtn');
-    const editModalAlertPlaceholder = document.getElementById('editModalAlertPlaceholder');
+        // --- Filter Handling ---
+        const electionFilter = document.getElementById('electionFilter');
+        if (electionFilter) {
+            electionFilter.addEventListener('change', function() {
+                const selectedValue = this.value;
+                // Construct URL preserving other parameters if needed in future
+                const currentUrl = new URL(window.location.href);
+                if (selectedValue === 'all') {
+                    currentUrl.searchParams.delete('election');
+                } else {
+                    currentUrl.searchParams.set('election', selectedValue);
+                }
+                window.location.href = currentUrl.toString();
+            });
+        }
 
-    const deleteConfirmModalEl = document.getElementById('deleteConfirmModal');
-    const deleteConfirmModal = deleteConfirmModalEl ? bootstrap.Modal.getOrCreateInstance(deleteConfirmModalEl) : null;
-    const positionToDeleteNameEl = document.getElementById('positionToDeleteName');
-    const deletePositionIdInput = document.getElementById('deletePositionId');
-    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+        // --- Modal Instances & Placeholders ---
+        const newPositionModalEl = document.getElementById('newPositionModal');
+        const newPositionModal = newPositionModalEl ? bootstrap.Modal.getOrCreateInstance(newPositionModalEl) : null;
+        const addPositionForm = document.getElementById('addPositionForm');
+        const addPositionSubmitBtn = document.getElementById('addPositionSubmitBtn');
+        const addModalAlertPlaceholder = document.getElementById('addModalAlertPlaceholder');
+
+        const editPositionModalEl = document.getElementById('editPositionModal');
+        const editPositionModal = editPositionModalEl ? bootstrap.Modal.getOrCreateInstance(editPositionModalEl) : null;
+        const editPositionForm = document.getElementById('editPositionForm');
+        const editPositionSubmitBtn = document.getElementById('editPositionSubmitBtn');
+        const editModalAlertPlaceholder = document.getElementById('editModalAlertPlaceholder');
+
+        const deleteConfirmModalEl = document.getElementById('deleteConfirmModal');
+        const deleteConfirmModal = deleteConfirmModalEl ? bootstrap.Modal.getOrCreateInstance(deleteConfirmModalEl) : null;
+        const positionToDeleteNameEl = document.getElementById('positionToDeleteName');
+        const deletePositionIdInput = document.getElementById('deletePositionId');
+        const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
 
 
-    // Function to show modal errors
-     function showModalAlert(placeholder, message, type = 'danger') {
-          if(placeholder) {
-               placeholder.innerHTML = `
+        // Function to show modal errors
+        function showModalAlert(placeholder, message, type = 'danger') {
+            if (placeholder) {
+                placeholder.innerHTML = `
                     <div class="alert alert-${type} alert-dismissible fade show mb-0" role="alert">
                          <i class="bi ${type === 'danger' ? 'bi-exclamation-triangle-fill' : 'bi-check-circle-fill'} me-2"></i>
                          ${message}
                          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>`;
-          }
-     }
-
-    // --- Add Position Form Handling ---
-    if (addPositionForm && addPositionSubmitBtn) {
-        addPositionForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            addModalAlertPlaceholder.innerHTML = ''; // Clear previous alerts
-            addPositionForm.classList.remove('was-validated');
-
-            if (!addPositionForm.checkValidity()) {
-                e.stopPropagation();
-                addPositionForm.classList.add('was-validated');
-                showModalAlert(addModalAlertPlaceholder, 'Please fill in all required fields.', 'warning');
-                return;
             }
+        }
 
-            const originalBtnHTML = addPositionSubmitBtn.innerHTML;
-            addPositionSubmitBtn.disabled = true;
-            addPositionSubmitBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Adding...`;
-            const formData = new FormData(addPositionForm);
+        // --- Add Position Form Handling ---
+        if (addPositionForm && addPositionSubmitBtn) {
+            addPositionForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                addModalAlertPlaceholder.innerHTML = ''; // Clear previous alerts
+                addPositionForm.classList.remove('was-validated');
 
-            fetch('add_position.php', { method: 'POST', body: formData, headers: {'Accept': 'application/json'}})
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showNotification(data.message || 'Position added successfully!', 'success');
-                        if(newPositionModal) newPositionModal.hide();
-                        setTimeout(() => window.location.reload(), 1000); // Reload after delay
-                    } else {
-                        throw new Error(data.message || 'Failed to add position.');
-                    }
-                })
-                .catch(error => {
-                    console.error('Add Position Error:', error);
-                    showModalAlert(addModalAlertPlaceholder, error.message || 'An error occurred.', 'danger');
-                })
-                .finally(() => {
-                    addPositionSubmitBtn.disabled = false;
-                    addPositionSubmitBtn.innerHTML = originalBtnHTML;
-                });
-        });
-    }
-
-    // --- Edit Position Handling ---
-    document.querySelectorAll('.edit-position-btn').forEach(button => {
-        button.addEventListener('click', function() {
-            const positionId = this.getAttribute('data-position-id');
-            if (!positionId) return;
-            editModalAlertPlaceholder.innerHTML = ''; // Clear previous errors
-            editPositionForm.classList.remove('was-validated');
-
-            // Fetch existing data
-            fetch(`get_position.php?id=${positionId}`, { headers: {'Accept': 'application/json'}})
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success && data.position) {
-                        // Populate the edit form
-                        document.getElementById('edit_position_id').value = data.position.id;
-                        document.getElementById('edit_title').value = data.position.title;
-                        document.getElementById('edit_election_id').value = data.position.election_id;
-                        document.getElementById('edit_description').value = data.position.description;
-                        if(editPositionModal) editPositionModal.show();
-                    } else {
-                        showNotification(data.message || 'Error loading position data', 'danger');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching position:', error);
-                    showNotification('Error loading position data', 'danger');
-                });
-        });
-    });
-
-    // Edit Form Submit
-    if(editPositionForm && editPositionSubmitBtn) {
-        editPositionForm.addEventListener('submit', function(e) {
-             e.preventDefault();
-            editModalAlertPlaceholder.innerHTML = '';
-            editPositionForm.classList.remove('was-validated');
-
-             if (!editPositionForm.checkValidity()) {
-                 e.stopPropagation();
-                 editPositionForm.classList.add('was-validated');
-                 showModalAlert(editModalAlertPlaceholder, 'Please fill in all required fields.', 'warning');
-                 return;
-             }
-
-             const originalBtnHTML = editPositionSubmitBtn.innerHTML;
-             editPositionSubmitBtn.disabled = true;
-             editPositionSubmitBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...`;
-             const formData = new FormData(editPositionForm);
-
-             fetch('update_position.php', { method: 'POST', body: formData, headers: {'Accept': 'application/json'}})
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showNotification(data.message || 'Position updated successfully!', 'success');
-                        if(editPositionModal) editPositionModal.hide();
-                        setTimeout(() => window.location.reload(), 1000);
-                    } else {
-                         throw new Error(data.message || 'Failed to update position.');
-                    }
-                })
-                .catch(error => {
-                    console.error('Update Position Error:', error);
-                     showModalAlert(editModalAlertPlaceholder, error.message || 'An error occurred.', 'danger');
-                })
-                .finally(() => {
-                    editPositionSubmitBtn.disabled = false;
-                    editPositionSubmitBtn.innerHTML = originalBtnHTML;
-                });
-        });
-    }
-
-     // --- Delete Position Handling ---
-     document.querySelectorAll('.delete-position-btn').forEach(button => {
-         button.addEventListener('click', function() {
-             const positionId = this.getAttribute('data-position-id');
-             const positionTitle = this.getAttribute('data-position-title');
-             if(deletePositionIdInput) deletePositionIdInput.value = positionId;
-             if(positionToDeleteNameEl) positionToDeleteNameEl.textContent = positionTitle || 'this item';
-             if(deleteConfirmModal) deleteConfirmModal.show();
-         });
-     });
-
-     if(confirmDeleteBtn) {
-         confirmDeleteBtn.addEventListener('click', function() {
-             const positionId = deletePositionIdInput ? deletePositionIdInput.value : null;
-             if (!positionId) return;
-
-             const originalBtnText = this.innerHTML;
-             this.disabled = true;
-             this.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Deleting...`;
-
-             fetch(`delete_position.php?id=${positionId}`, { headers: {'Accept': 'application/json'}})
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showNotification(data.message || 'Position deleted successfully!', 'success');
-                        if(deleteConfirmModal) deleteConfirmModal.hide();
-                         // Remove row from table visually instead of full reload
-                         const rowToRemove = document.getElementById(`position-row-${positionId}`);
-                         if(rowToRemove) {
-                              rowToRemove.style.opacity = '0';
-                              setTimeout(() => rowToRemove.remove(), 300);
-                         } else {
-                             setTimeout(() => window.location.reload(), 1000); // Fallback reload
-                         }
-                    } else {
-                         throw new Error(data.message || 'Failed to delete position.');
-                    }
-                })
-                .catch(error => {
-                     console.error('Delete Position Error:', error);
-                     showNotification(error.message || 'Error deleting position', 'danger');
-                     if(deleteConfirmModal) deleteConfirmModal.hide(); // Hide modal even on error
-                })
-                .finally(() => {
-                    // Re-enable button happens when modal closes via 'hidden.bs.modal'
-                });
-         });
-     }
-
-     // Reset delete button state when modal closes
-      if(deleteConfirmModalEl) {
-           deleteConfirmModalEl.addEventListener('hidden.bs.modal', function () {
-               if(confirmDeleteBtn) {
-                   confirmDeleteBtn.disabled = false;
-                   confirmDeleteBtn.innerHTML = '<i class="bi bi-trash3-fill me-1"></i>Delete Position';
-               }
-           });
-      }
-
-    // Reset forms validation state when modals close
-    [newPositionModalEl, editPositionModalEl].forEach(modalEl => {
-        if(modalEl) {
-            modalEl.addEventListener('hidden.bs.modal', function () {
-                const form = this.querySelector('form');
-                if (form) {
-                    form.classList.remove('was-validated');
-                    form.reset();
+                if (!addPositionForm.checkValidity()) {
+                    e.stopPropagation();
+                    addPositionForm.classList.add('was-validated');
+                    showModalAlert(addModalAlertPlaceholder, 'Please fill in all required fields.', 'warning');
+                    return;
                 }
-                 const alertPlaceholder = this.querySelector('#addModalAlertPlaceholder') || this.querySelector('#editModalAlertPlaceholder');
-                 if (alertPlaceholder) alertPlaceholder.innerHTML = '';
 
-                  // Also reset date validation visual state if applicable
-                 const modalEndDate = this.querySelector('#end_date') || this.querySelector('#edit_end_date');
-                 const modalStartDate = this.querySelector('#start_date') || this.querySelector('#edit_start_date');
-                 const modalDateError = this.querySelector('#dateValidationError'); // Assuming only new election modal has dates
-                 if(modalEndDate) modalEndDate.classList.remove('is-invalid');
-                 if(modalStartDate) modalStartDate.classList.remove('is-invalid');
-                 if(modalDateError) modalDateError.classList.add('d-none');
+                const originalBtnHTML = addPositionSubmitBtn.innerHTML;
+                addPositionSubmitBtn.disabled = true;
+                addPositionSubmitBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Adding...`;
+                const formData = new FormData(addPositionForm);
 
+                fetch('add_position.php', {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            showNotification(data.message || 'Position added successfully!', 'success');
+                            if (newPositionModal) newPositionModal.hide();
+                            setTimeout(() => window.location.reload(), 1000); // Reload after delay
+                        } else {
+                            throw new Error(data.message || 'Failed to add position.');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Add Position Error:', error);
+                        showModalAlert(addModalAlertPlaceholder, error.message || 'An error occurred.', 'danger');
+                    })
+                    .finally(() => {
+                        addPositionSubmitBtn.disabled = false;
+                        addPositionSubmitBtn.innerHTML = originalBtnHTML;
+                    });
             });
         }
-    });
+
+        // --- Edit Position Handling ---
+        document.querySelectorAll('.edit-position-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const positionId = this.getAttribute('data-position-id');
+                if (!positionId) return;
+                editModalAlertPlaceholder.innerHTML = ''; // Clear previous errors
+                editPositionForm.classList.remove('was-validated');
+
+                // Fetch existing data
+                fetch(`get_position.php?id=${positionId}`, {
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success && data.position) {
+                            // Populate the edit form
+                            document.getElementById('edit_position_id').value = data.position.id;
+                            document.getElementById('edit_title').value = data.position.title;
+                            document.getElementById('edit_election_id').value = data.position.election_id;
+                            document.getElementById('edit_description').value = data.position.description;
+                            if (editPositionModal) editPositionModal.show();
+                        } else {
+                            showNotification(data.message || 'Error loading position data', 'danger');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching position:', error);
+                        showNotification('Error loading position data', 'danger');
+                    });
+            });
+        });
+
+        // Edit Form Submit
+        if (editPositionForm && editPositionSubmitBtn) {
+            editPositionForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                editModalAlertPlaceholder.innerHTML = '';
+                editPositionForm.classList.remove('was-validated');
+
+                if (!editPositionForm.checkValidity()) {
+                    e.stopPropagation();
+                    editPositionForm.classList.add('was-validated');
+                    showModalAlert(editModalAlertPlaceholder, 'Please fill in all required fields.', 'warning');
+                    return;
+                }
+
+                const originalBtnHTML = editPositionSubmitBtn.innerHTML;
+                editPositionSubmitBtn.disabled = true;
+                editPositionSubmitBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...`;
+                const formData = new FormData(editPositionForm);
+
+                fetch('update_position.php', {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            showNotification(data.message || 'Position updated successfully!', 'success');
+                            if (editPositionModal) editPositionModal.hide();
+                            setTimeout(() => window.location.reload(), 1000);
+                        } else {
+                            throw new Error(data.message || 'Failed to update position.');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Update Position Error:', error);
+                        showModalAlert(editModalAlertPlaceholder, error.message || 'An error occurred.', 'danger');
+                    })
+                    .finally(() => {
+                        editPositionSubmitBtn.disabled = false;
+                        editPositionSubmitBtn.innerHTML = originalBtnHTML;
+                    });
+            });
+        }
+
+        // --- Delete Position Handling ---
+        document.querySelectorAll('.delete-position-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const positionId = this.getAttribute('data-position-id');
+                const positionTitle = this.getAttribute('data-position-title');
+                if (deletePositionIdInput) deletePositionIdInput.value = positionId;
+                if (positionToDeleteNameEl) positionToDeleteNameEl.textContent = positionTitle || 'this item';
+                if (deleteConfirmModal) deleteConfirmModal.show();
+            });
+        });
+
+        if (confirmDeleteBtn) {
+            confirmDeleteBtn.addEventListener('click', function() {
+                const positionId = deletePositionIdInput ? deletePositionIdInput.value : null;
+                if (!positionId) return;
+
+                const originalBtnText = this.innerHTML;
+                this.disabled = true;
+                this.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Deleting...`;
+
+                fetch(`delete_position.php?id=${positionId}`, {
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            showNotification(data.message || 'Position deleted successfully!', 'success');
+                            if (deleteConfirmModal) deleteConfirmModal.hide();
+                            // Remove row from table visually instead of full reload
+                            const rowToRemove = document.getElementById(`position-row-${positionId}`);
+                            if (rowToRemove) {
+                                rowToRemove.style.opacity = '0';
+                                setTimeout(() => rowToRemove.remove(), 300);
+                            } else {
+                                setTimeout(() => window.location.reload(), 1000); // Fallback reload
+                            }
+                        } else {
+                            throw new Error(data.message || 'Failed to delete position.');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Delete Position Error:', error);
+                        showNotification(error.message || 'Error deleting position', 'danger');
+                        if (deleteConfirmModal) deleteConfirmModal.hide(); // Hide modal even on error
+                    })
+                    .finally(() => {
+                        // Re-enable button happens when modal closes via 'hidden.bs.modal'
+                    });
+            });
+        }
+
+        // Reset delete button state when modal closes
+        if (deleteConfirmModalEl) {
+            deleteConfirmModalEl.addEventListener('hidden.bs.modal', function() {
+                if (confirmDeleteBtn) {
+                    confirmDeleteBtn.disabled = false;
+                    confirmDeleteBtn.innerHTML = '<i class="bi bi-trash3-fill me-1"></i>Delete Position';
+                }
+            });
+        }
+
+        // Reset forms validation state when modals close
+        [newPositionModalEl, editPositionModalEl].forEach(modalEl => {
+            if (modalEl) {
+                modalEl.addEventListener('hidden.bs.modal', function() {
+                    const form = this.querySelector('form');
+                    if (form) {
+                        form.classList.remove('was-validated');
+                        form.reset();
+                    }
+                    const alertPlaceholder = this.querySelector('#addModalAlertPlaceholder') || this.querySelector('#editModalAlertPlaceholder');
+                    if (alertPlaceholder) alertPlaceholder.innerHTML = '';
+
+                    // Also reset date validation visual state if applicable
+                    const modalEndDate = this.querySelector('#end_date') || this.querySelector('#edit_end_date');
+                    const modalStartDate = this.querySelector('#start_date') || this.querySelector('#edit_start_date');
+                    const modalDateError = this.querySelector('#dateValidationError'); // Assuming only new election modal has dates
+                    if (modalEndDate) modalEndDate.classList.remove('is-invalid');
+                    if (modalStartDate) modalStartDate.classList.remove('is-invalid');
+                    if (modalDateError) modalDateError.classList.add('d-none');
+
+                });
+            }
+        });
 
 
-    // --- Sidebar Toggle Logic ---
-    const sidebarToggle = document.getElementById('sidebarToggle');
-    const sidebar = document.getElementById('sidebar');
-    const mainContent = document.getElementById('mainContent');
-    const navbar = document.querySelector('.navbar');
-    if (sidebarToggle && sidebar && mainContent && navbar) {
-        const applySidebarState = (state) => { sidebar.classList.toggle('collapsed', state === 'collapsed'); mainContent.classList.toggle('expanded', state === 'collapsed'); navbar.classList.toggle('expanded', state === 'collapsed'); };
-        sidebarToggle.addEventListener('click', (e) => { e.preventDefault(); const newState = sidebar.classList.contains('collapsed') ? 'expanded' : 'collapsed'; applySidebarState(newState); try { localStorage.setItem('sidebarState', newState); } catch (e) {} });
-        try { const storedState = localStorage.getItem('sidebarState'); if (storedState) applySidebarState(storedState); } catch (e) {}
-    }
+        // --- Sidebar Toggle Logic ---
+        const sidebarToggle = document.getElementById('sidebarToggle');
+        const sidebar = document.getElementById('sidebar');
+        const mainContent = document.getElementById('mainContent');
+        const navbar = document.querySelector('.navbar');
+        if (sidebarToggle && sidebar && mainContent && navbar) {
+            const applySidebarState = (state) => {
+                sidebar.classList.toggle('collapsed', state === 'collapsed');
+                mainContent.classList.toggle('expanded', state === 'collapsed');
+                navbar.classList.toggle('expanded', state === 'collapsed');
+            };
+            sidebarToggle.addEventListener('click', (e) => {
+                e.preventDefault();
+                const newState = sidebar.classList.contains('collapsed') ? 'expanded' : 'collapsed';
+                applySidebarState(newState);
+                try {
+                    localStorage.setItem('sidebarState', newState);
+                } catch (e) {}
+            });
+            try {
+                const storedState = localStorage.getItem('sidebarState');
+                if (storedState) applySidebarState(storedState);
+            } catch (e) {}
+        }
 
-}); // End DOMContentLoaded
+    }); // End DOMContentLoaded
 </script>
 
 </body>
+
 </html>

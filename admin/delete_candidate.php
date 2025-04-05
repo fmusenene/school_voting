@@ -8,32 +8,46 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-if (!isset($_POST['candidate_id'])) {
-    echo json_encode(['success' => false, 'message' => 'Candidate ID not provided']);
+$candidate_id = isset($_POST['candidate_id']) ? (int)$_POST['candidate_id'] : 0;
+if ($candidate_id <= 0) {
+    echo json_encode(['success' => false, 'message' => 'Candidate ID not provided or invalid']);
     exit;
 }
 
-try {
-    $conn->beginTransaction();
+mysqli_begin_transaction($conn);
 
+try {
     // Get candidate photo path
-    $stmt = $conn->prepare("SELECT photo FROM candidates WHERE id = ?");
-    $stmt->execute([$_POST['candidate_id']]);
-    $photo_path = $stmt->fetchColumn();
+    $sql = "SELECT photo FROM candidates WHERE id = $candidate_id LIMIT 1";
+    $result = mysqli_query($conn, $sql);
+    if (!$result) {
+        throw new Exception("Failed to fetch candidate: " . mysqli_error($conn));
+    }
+    $row = mysqli_fetch_assoc($result);
+    if (!$row) {
+        throw new Exception("Candidate not found");
+    }
+    $photo_path = $row['photo'];
 
     // Delete candidate
-    $stmt = $conn->prepare("DELETE FROM candidates WHERE id = ?");
-    $stmt->execute([$_POST['candidate_id']]);
+    $delete_sql = "DELETE FROM candidates WHERE id = $candidate_id";
+    $delete_result = mysqli_query($conn, $delete_sql);
+    if ($delete_result === false) {
+        throw new Exception("Failed to delete candidate: " . mysqli_error($conn));
+    }
 
     // Delete photo file if exists
     if ($photo_path && file_exists("../" . $photo_path)) {
-        unlink("../" . $photo_path);
+        if (!unlink("../" . $photo_path)) {
+            error_log("Warning: Could not delete photo file at ../" . $photo_path);
+        }
     }
 
-    $conn->commit();
+    mysqli_commit($conn);
     echo json_encode(['success' => true, 'message' => 'Candidate deleted successfully']);
 
-} catch (PDOException $e) {
-    $conn->rollBack();
+} catch (Exception $e) {
+    mysqli_rollback($conn);
     echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
-} 
+}
+?>
