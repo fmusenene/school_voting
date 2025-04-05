@@ -1,7 +1,7 @@
 <?php
 // Start session and include necessary files
 if (session_status() === PHP_SESSION_NONE) {
-    session_start();
+session_start();
 }
 require_once "../config/database.php"; // Relative path from admin folder
 require_once "includes/session.php"; // Includes isAdminLoggedIn()
@@ -60,9 +60,9 @@ try {
     // --- Fetch Main Candidate List ---
     $sql_candidates = "SELECT c.id, c.name, c.description, c.photo, c.position_id,
                         p.title as position_title, p.election_id, e.title as election_title
-                       FROM candidates c
-                       LEFT JOIN positions p ON c.position_id = p.id
-                       LEFT JOIN elections e ON p.election_id = e.id
+        FROM candidates c
+        LEFT JOIN positions p ON c.position_id = p.id
+        LEFT JOIN elections e ON p.election_id = e.id
                        WHERE 1=1"; // Start WHERE clause
 
     $params_candidates = [];
@@ -133,7 +133,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['a
              if (move_uploaded_file($_FILES['photo']['tmp_name'], $target_path_absolute)) {
                 // Store path relative to web root (or consistent base) for DB
                  $photo_path_db = 'uploads/candidates/' . $new_filename;
-             } else {
+            } else {
                  throw new Exception("Failed to move uploaded file. Check permissions.");
              }
         }
@@ -198,7 +198,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['a
                         }
                     }
                     $response = ['success' => true, 'message' => 'Selected candidates deleted successfully!'];
-                } else {
+        } else {
                     throw new Exception("Database error during bulk delete.");
                 }
             } catch (PDOException $e) {
@@ -318,35 +318,35 @@ require_once "includes/header.php";
                     <div>
                         <div class="stat-label text-primary">Total Candidates</div>
                         <div class="stat-value" id="stat-total-candidates">0</div>
-                    </div>
+                        </div>
                     <div class="stat-detail">Across all elections</div>
                     <i class="bi bi-people-fill stats-card-icon"></i>
+                        </div>
+                    </div>
                 </div>
-            </div>
-        </div>
         <div class="col-lg-4 col-md-6 mb-3">
             <div class="stats-card border-left-success h-100">
                 <div class="card-body">
                     <div>
                         <div class="stat-label text-success">Total Positions</div>
                         <div class="stat-value" id="stat-total-positions">0</div>
-                    </div>
+                        </div>
                      <div class="stat-detail">With active candidates</div>
                     <i class="bi bi-tag-fill stats-card-icon"></i>
+                        </div>
+                    </div>
                 </div>
-            </div>
-        </div>
         <div class="col-lg-4 col-md-6 mb-3">
              <div class="stats-card border-left-warning h-100">
-                 <div class="card-body">
+                <div class="card-body">
                     <div>
                         <div class="stat-label text-warning">Total Votes Recorded</div>
                         <div class="stat-value" id="stat-total-votes">0</div>
-                    </div>
+                        </div>
                      <div class="stat-detail">For all candidates</div>
                      <i class="bi bi-check2-square stats-card-icon"></i>
-                 </div>
-             </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -370,7 +370,7 @@ require_once "includes/header.php";
                     <option value="all" <?php echo $selected_position === 'all' ? 'selected' : ''; ?>>All Positions</option>
                     <?php foreach ($positions_for_filter as $position): ?>
                          {/* Filtered by JS or pre-filtered by PHP */}
-                        <option value="<?php echo $position['id']; ?>"
+                        <option value="<?php echo $position['id']; ?>" 
                                 data-election-id="<?php echo $position['election_id']; ?>"
                                 <?php echo $selected_position == $position['id'] ? 'selected' : ''; ?>
                                 <?php // Hide if election filter is set and doesn't match
@@ -421,7 +421,7 @@ require_once "includes/header.php";
                                     </td>
                                 </tr>
                             <?php else: ?>
-                                <?php foreach ($candidates as $candidate): ?>
+                            <?php foreach ($candidates as $candidate): ?>
                                     <tr id="candidate-row-<?php echo $candidate['id']; ?>">
                                         <td class="text-center">
                                             <input class="form-check-input candidate-checkbox" type="checkbox" name="selected_ids[]" value="<?php echo $candidate['id']; ?>" aria-label="Select candidate <?php echo htmlspecialchars($candidate['name']); ?>">
@@ -435,7 +435,7 @@ require_once "includes/header.php";
                                                  }
                                              ?>
                                             <img src="<?php echo $photo_path; ?>" class="candidate-photo" alt="" onerror="this.src='assets/images/default-avatar.png'; this.onerror=null;">
-                                        </td>
+                                    </td>
                                         <td>
                                             <span class="candidate-name"><?php echo htmlspecialchars($candidate['name']); ?></span>
                                             <small class="position-details d-block text-muted"><?php echo htmlspecialchars($candidate['description'] ?? ''); ?></small>
@@ -462,9 +462,9 @@ require_once "includes/header.php";
                                                     data-bs-toggle="tooltip" data-bs-placement="top" title="Delete Candidate">
                                                 <i class="bi bi-trash3-fill"></i>
                                             </button>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
                             <?php endif; ?>
                         </tbody>
                     </table>
@@ -474,10 +474,10 @@ require_once "includes/header.php";
                      <small class="text-muted me-3"><span id="selectedCount">0</span> selected</small>
                      <button type="button" class="btn btn-sm btn-danger" id="deleteSelectedBtnBulk" disabled>
                           <i class="bi bi-trash-fill me-1"></i> Delete Selected
-                     </button>
+                </button>
                  </div>
                  <?php endif; ?>
-             </form>
+            </form>
         </div>
     </div>
 </div>
@@ -496,34 +496,34 @@ require_once "includes/header.php";
                     <input type="hidden" name="action" value="create"> 
                     <div class="row">
                          <div class="col-md-8">
-                            <div class="mb-3">
+                    <div class="mb-3">
                                 <label for="add_name" class="form-label">Candidate Name*</label>
                                 <input type="text" class="form-control" id="add_name" name="name" required>
                                 <div class="invalid-feedback">Please enter the candidate's name.</div>
-                            </div>
-                             <div class="mb-3">
+                    </div>
+                    <div class="mb-3">
                                 <label for="add_position_id" class="form-label">Position*</label>
                                 <select class="form-select" id="add_position_id" name="position_id" required <?php echo empty($positions_for_filter) ? 'disabled' : ''; ?>>
                                     <option value="" selected disabled>-- Select Position --</option>
                                     <?php foreach ($positions_for_filter as $position): ?>
-                                        <option value="<?php echo $position['id']; ?>"
+                                <option value="<?php echo $position['id']; ?>" 
                                             <?php // Pre-select if filtered
                                                 echo ($selected_position !== 'all' && $selected_position == $position['id']) ? 'selected' : '';
                                             ?>
                                         >
                                             <?php echo htmlspecialchars($position['title'] . ' (' . ($position['election_title'] ?? 'N/A') . ')'); ?>
-                                        </option>
-                                    <?php endforeach; ?>
+                                </option>
+                            <?php endforeach; ?>
                                      <?php if(empty($positions_for_filter)): ?>
                                          <option value="" disabled>No positions found. Add positions first.</option>
                                      <?php endif; ?>
-                                </select>
+                        </select>
                                  <div class="invalid-feedback">Please select a position.</div>
-                            </div>
-                            <div class="mb-3">
+                    </div>
+                    <div class="mb-3">
                                 <label for="add_description" class="form-label">Short Description/Slogan (Optional)</label>
                                 <textarea class="form-control" id="add_description" name="description" rows="2"></textarea>
-                            </div>
+                    </div>
                         </div>
                          <div class="col-md-4 text-center">
                             <label for="add_photo" class="form-label">Photo</label>
@@ -554,32 +554,32 @@ require_once "includes/header.php";
             </div>
             
             <form id="editCandidateForm" method="POST" action="edit_candidate.php" enctype="multipart/form-data" novalidate>
-                 <input type="hidden" id="edit_candidate_id" name="candidate_id">
+                    <input type="hidden" id="edit_candidate_id" name="candidate_id">
                 <div class="modal-body p-4">
                      <div id="editModalAlertPlaceholder"></div>
                     <div class="row">
                          <div class="col-md-8">
-                             <div class="mb-3">
+                    <div class="mb-3">
                                 <label for="edit_name" class="form-label">Candidate Name*</label>
-                                <input type="text" class="form-control" id="edit_name" name="name" required>
+                        <input type="text" class="form-control" id="edit_name" name="name" required>
                                 <div class="invalid-feedback">Name is required.</div>
-                             </div>
-                             <div class="mb-3">
+                    </div>
+                    <div class="mb-3">
                                 <label for="edit_position_id" class="form-label">Position*</label>
                                 <select class="form-select" id="edit_position_id" name="position_id" required <?php echo empty($positions_for_filter) ? 'disabled' : ''; ?>>
                                     <option value="">-- Select Position --</option>
                                     <?php foreach ($positions_for_filter as $position): ?>
-                                        <option value="<?php echo $position['id']; ?>">
+                                <option value="<?php echo $position['id']; ?>">
                                             <?php echo htmlspecialchars($position['title'] . ' (' . ($position['election_title'] ?? 'N/A') . ')'); ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                                 <div class="invalid-feedback">Please select a position.</div>
-                             </div>
-                             <div class="mb-3">
+                    </div>
+                    <div class="mb-3">
                                 <label for="edit_description" class="form-label">Description (Optional)</label>
                                 <textarea class="form-control" id="edit_description" name="description" rows="3"></textarea>
-                            </div>
+                    </div>
                         </div>
                         <div class="col-md-4 text-center">
                              <label class="form-label d-block">Current Photo</label>
@@ -589,8 +589,8 @@ require_once "includes/header.php";
                              <small class="form-text text-muted d-block mt-1">Leave empty to keep current photo.</small>
                         </div>
                     </div>
-                </div>
-                <div class="modal-footer">
+            </div>
+            <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-primary" id="editCandidateSubmitBtn">
                         <span class="spinner-border spinner-border-sm d-none me-1" role="status" aria-hidden="true"></span>
@@ -615,7 +615,7 @@ require_once "includes/header.php";
                 <input type="hidden" id="deleteCandidateIdSingle">
             </div>
              <div class="modal-footer justify-content-center border-0">
-                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                  <button type="button" class="btn btn-danger px-4" id="confirmDeleteSingleBtn">
                       <span class="spinner-border spinner-border-sm d-none me-1" role="status" aria-hidden="true"></span>
                       <i class="bi bi-trash3-fill me-1"></i>Delete
@@ -805,7 +805,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         previewEl.style.display = 'block';
                     }
                     reader.readAsDataURL(file);
-                } else {
+        } else {
                      previewEl.src = 'assets/images/default-avatar.png'; // Reset or keep old? Resetting might be better.
                      previewEl.style.display = 'block'; // Show default even if invalid file selected
                 }
@@ -819,7 +819,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const addCandidateSubmitBtn = document.getElementById('addCandidateSubmitBtn');
     if (addForm && addCandidateSubmitBtn) {
         addForm.addEventListener('submit', function(e) {
-            e.preventDefault();
+    e.preventDefault();
             addModalAlertPlaceholder.innerHTML = ''; addForm.classList.remove('was-validated');
             if (!addForm.checkValidity()) { e.stopPropagation(); addForm.classList.add('was-validated'); showModalAlert(addModalAlertPlaceholder, 'Please fill required fields.', 'warning'); return; }
 
@@ -829,8 +829,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
             fetch('candidates.php', { method: 'POST', body: formData, headers: {'Accept': 'application/json'}}) // POST to self, relies on action='create' check
                 .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
+    .then(data => {
+        if (data.success) {
                         showNotification(data.message || 'Candidate added!', 'success');
                         if(newCandidateModal) newCandidateModal.hide();
                         setTimeout(() => window.location.reload(), 1500);
@@ -870,8 +870,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     } else { throw new Error(data.message || 'Could not load candidate data.'); }
                 })
                 .catch(error => { console.error('Fetch Edit Error:', error); showNotification('Error loading candidate details.', 'danger'); });
-        });
     });
+});
 
     // Edit Form Submit - **Requires edit_candidate.php script**
     if(editForm && editCandidateSubmitBtn) {
@@ -885,9 +885,9 @@ document.addEventListener('DOMContentLoaded', function () {
              const formData = new FormData(editForm); // Includes file if selected
 
              fetch('edit_candidate.php', { method: 'POST', body: formData, headers: {'Accept': 'application/json'}})
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
                         showNotification(data.message || 'Candidate updated!', 'success');
                         if(editCandidateModal) editCandidateModal.hide();
                         setTimeout(() => window.location.reload(), 1500);
@@ -922,9 +922,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
              // **Requires delete_candidate.php script**
              fetch(`delete_candidate.php?id=${candidateId}`, { headers: {'Accept': 'application/json'}})
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
                         showNotification(data.message || 'Candidate deleted!', 'success');
                         if(deleteSingleModal) deleteSingleModal.hide();
                          const rowToRemove = document.getElementById(`candidate-row-${candidateId}`);
@@ -993,8 +993,8 @@ document.addEventListener('DOMContentLoaded', function () {
              // POST to self (candidates.php) to handle bulk delete action
              fetch('candidates.php', { method: 'POST', body: formData, headers: {'Accept': 'application/json'} })
                  .then(response => response.json())
-                 .then(data => {
-                     if (data.success) {
+    .then(data => {
+        if (data.success) {
                          showNotification(data.message || 'Selected candidates deleted!', 'success');
                          if(deleteBulkModal) deleteBulkModal.hide();
                          // Remove rows visually
@@ -1003,11 +1003,11 @@ document.addEventListener('DOMContentLoaded', function () {
                               if(row) { row.style.opacity = '0'; setTimeout(() => row.remove(), 300); }
                          });
                          updateSelectedCount(); // Reset count and button state
-                     } else {
+        } else {
                           throw new Error(data.message || 'Failed to delete candidates.');
-                     }
-                 })
-                 .catch(error => {
+        }
+    })
+    .catch(error => {
                       showNotification(error.message || 'Error during bulk delete.', 'danger');
                       if(deleteBulkModal) deleteBulkModal.hide();
                  })
