@@ -1,7 +1,7 @@
 <?php
 // Initialize session and load required files
 require_once "includes/init.php"; // Sets up session, CSP nonce
-require_once "includes/database.php"; // Database connection ($conn)
+require_once "../config/database.php"; // Provides $conn (mysqli object)
 require_once "includes/session.php"; // Session handling functions
 
 // Check if admin is logged in
