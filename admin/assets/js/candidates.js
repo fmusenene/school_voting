@@ -397,7 +397,7 @@ function handleAddCandidate(event) {
     .catch(error => {
         // Network or other errors
         console.error('Error:', error);
-        showNotification('An unexpected error occurred.', 'error');
+        showNotification('An unexpected error occurred. ERROR: ' + error.message, 'error'); 
     })
     .finally(() => {
         // Re-enable the button regardless of success or error

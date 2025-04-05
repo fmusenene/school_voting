@@ -125,7 +125,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $error = "A database error occurred. Please try again later.";
         } catch (Exception $e) {
             error_log("Login Exception (index.php): " . $e->getMessage());
-            $error = "An unexpected error occurred.";
+            $error = "An unexpected error occurred. message: " . $e->getMessage();  
         }
     }
 }

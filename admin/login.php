@@ -1,22 +1,23 @@
 <?php
 // Start session **before** any output
 if (session_status() === PHP_SESSION_NONE) {
-session_start();
+    session_start();
 }
 
-// Establish database connection ($conn PDO object)
-require_once "../config/database.php"; // Relative path from admin folder
+// Establish database connection ($conn) - ASSUMING $conn is a mysqli object now
+require_once "../config/database.php";
 
 // --- Configuration ---
 date_default_timezone_set('Asia/Manila'); // Adjust timezone if needed
-error_reporting(E_ALL); // Dev
-ini_set('display_errors', 1); // Dev
-// ini_set('display_errors', 0); // Prod
-// error_reporting(0); // Prod
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+// Production settings:
+// ini_set('display_errors', 0);
+// error_reporting(0);
 
 // --- Check Existing Session ---
 if (isset($_SESSION['admin_id'])) {
-    header("Location: index.php"); // Redirect to dashboard within admin folder
+    header("Location: index.php");
     exit();
 }
 
@@ -32,38 +33,73 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (empty($submitted_username) || empty($password)) {
         $error = "Please enter both username and password.";
     } else {
+        // --- Use try...catch for robust error handling ---
         try {
-            $sql = "SELECT id, username, password FROM admins WHERE username = :username LIMIT 1";
-    $stmt = $conn->prepare($sql);
+            // Ensure connection is a mysqli object
+            if (!$conn || !($conn instanceof mysqli)) {
+                 // If $conn is NOT a mysqli object, this code block is wrong.
+                 // Fall back to the previous PDO recommendation or check config/database.php
+                 throw new Exception("Database connection is not a valid mysqli object. Please check config/database.php");
+            }
 
-            if ($stmt === false) throw new PDOException("Failed to prepare login statement.");
+            // --- SECURE MYSQLI PREPARED STATEMENT ---
+            // 1. Prepare SQL statement using '?' placeholder
+            $sql = "SELECT id, username, password FROM admins WHERE username = ? LIMIT 1";
+            $stmt = mysqli_prepare($conn, $sql);
 
-            $stmt->bindParam(':username', $submitted_username, PDO::PARAM_STR);
-            $execute_success = $stmt->execute();
+            if ($stmt === false) {
+                 throw new Exception("Failed to prepare login statement: " . mysqli_error($conn));
+            }
+
+            // 2. Bind the username parameter ('s' denotes string type)
+            mysqli_stmt_bind_param($stmt, "s", $submitted_username);
+
+            // 3. Execute the statement
+            $execute_success = mysqli_stmt_execute($stmt);
 
              if (!$execute_success) {
-                 $errorInfo = $stmt->errorInfo();
-                 error_log("Admin Login PDO Execute Error: " . ($errorInfo[2] ?? 'Unknown error'));
-                 throw new PDOException("Failed to execute login query.");
+                 error_log("Admin Login Mysqli Execute Error: " . mysqli_stmt_error($stmt));
+                 throw new Exception("Failed to execute login query.");
              }
 
-            $admin_row = $stmt->fetch(PDO::FETCH_ASSOC); // Correct PDO fetch
+            // 4. Get the result set from the prepared statement
+            $result = mysqli_stmt_get_result($stmt);
 
-            if ($admin_row && password_verify($password, $admin_row['password'])) {
-                session_regenerate_id(true); // Prevent session fixation
-                $_SESSION['admin_id'] = (int)$admin_row['id'];
-                $_SESSION['admin_username'] = $admin_row['username'];
-                header("Location: index.php"); // Redirect to dashboard
-            exit();
+            if ($result === false) {
+                 error_log("Admin Login Mysqli Get Result Error: " . mysqli_stmt_error($stmt));
+                 throw new Exception("Failed to get results from query.");
+            }
+
+            // 5. Fetch the result as an associative array (expects 0 arguments)
+            // This matches the error message signature `Workspace() expects exactly 0 arguments`
+            $admin_row = mysqli_fetch_assoc($result);
+
+            // 6. Close the statement
+            mysqli_stmt_close($stmt);
+            // --- End Secure Mysqli Prepared Statement ---
+
+            if ($admin_row) {
+                // 7. Verify the password
+                if (password_verify($password, $admin_row['password'])) {
+                    // Password correct
+                    session_regenerate_id(true);
+                    $_SESSION['admin_id'] = (int)$admin_row['id'];
+                    $_SESSION['admin_username'] = $admin_row['username'];
+                    header("Location: index.php");
+                    exit();
+                } else {
+                    $error = "Invalid username or password.";
+                }
             } else {
                 $error = "Invalid username or password.";
             }
-        } catch (PDOException $e) {
-            error_log("Admin Login PDOException: " . $e->getMessage());
-            $error = "A database error occurred. Please try again later.";
-        } catch (Exception $e) {
+        } catch (Exception $e) { // Catch general exceptions (including DB connection or query issues)
             error_log("Admin Login Exception: " . $e->getMessage());
-            $error = "An unexpected error occurred.";
+            $error = "An error occurred during login. Please check logs or contact support.";
+            // Specific check for connection failure message
+            if (strpos($e->getMessage(), 'Database connection') !== false) {
+                $error = $e->getMessage(); // Show the specific connection error
+            }
         }
     }
 }
@@ -103,21 +139,21 @@ $background_style = file_exists($background_image_path)
         }
         html, body { height: 100%; margin: 0; }
         body {
-            font-family: var(--font-family-secondary); display: flex; align-items: center; justify-content: center; position: relative;
-            <?php echo $background_style; ?> padding: 1rem; overflow-x: hidden; -ms-overflow-style: none; scrollbar-width: none;
+            font-family: var(--font-family-secondary); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative;
+            <?php echo $background_style; ?> padding: 2rem 1rem; overflow-x: hidden; -ms-overflow-style: none; scrollbar-width: none;
         }
         body::-webkit-scrollbar { display: none; }
         body::before { content: ''; position: fixed; inset: 0; background: rgba(248, 249, 252, 0.93); z-index: -1; }
 
-        .main-wrapper { max-width: 1000px; width: 100%; margin: auto; } /* Wrapper for login + features */
-        .login-wrapper { max-width: 420px; margin: 0 auto 3rem auto; z-index: 1; } /* Center login form */
+        .main-wrapper { max-width: 1000px; width: 100%; margin: auto; }
+        .login-wrapper { max-width: 420px; margin: 0 auto 3rem auto; z-index: 1; }
         .login-container { background: var(--white-color); padding: 2rem 2.5rem; border-radius: var(--border-radius); box-shadow: var(--shadow); border-top: 5px solid var(--primary-color); }
-        .logo-container { text-align: center; margin-bottom: 1rem; }
-        .logo { width: 90px; height: 90px; object-fit: contain; margin-bottom: .5rem;}
-        .login-title { text-align: center; color: var(--primary-dark); margin-bottom: 2rem; font-weight: 700; font-family: var(--font-family-primary); font-size: 1.6rem; }
+        .logo-container { text-align: center; margin-bottom: 1.5rem; }
+        .logo { width: 90px; height: 90px; object-fit: contain; }
+        .login-title { text-align: center; color: var(--primary-dark); margin-bottom: 1.5rem; font-weight: 700; font-family: var(--font-family-primary); font-size: 1.6rem; }
         .form-label { font-weight: 600; font-size: 0.8rem; color: var(--dark-color); margin-bottom: 0.3rem; text-transform: uppercase; letter-spacing: .5px; }
         .form-control { height: calc(1.5em + 1.2rem + 2px); padding: .6rem 1rem; border: 1px solid var(--border-color); border-radius: var(--border-radius); font-size: .95rem; transition: all .2s ease;}
-        .form-control:focus { border-color: var(--primary-color); box-shadow: 0 0 0 .2rem rgba(78, 115, 223, .25); z-index: 3;} /* Ensure focus outline is above icon */
+        .form-control:focus { border-color: var(--primary-color); box-shadow: 0 0 0 .2rem rgba(78, 115, 223, .25); z-index: 3;}
         .input-group-text { background-color: #f0f3f8; border: 1px solid var(--border-color); border-right: none; color: var(--secondary-color); height: calc(1.5em + 1.2rem + 2px); border-radius: var(--border-radius) 0 0 var(--border-radius);}
         .input-group .form-control { border-left: none; border-radius: 0 var(--border-radius) var(--border-radius) 0;}
         .input-group:focus-within .input-group-text, .input-group:focus-within .form-control { border-color: var(--primary-color); box-shadow: 0 0 0 .2rem rgba(78, 115, 223, .25); }
@@ -125,15 +161,11 @@ $background_style = file_exists($background_image_path)
         .input-group:focus-within .form-control { border-left: none;}
 
         /* Password Toggle Button */
-        .password-toggle-btn {
-            position: absolute; right: 0; top: 0; bottom: 0; z-index: 10; /* Above input */
-            height: 100%; border: none; background: transparent;
-            padding: 0 0.75rem; color: var(--secondary-color); cursor: pointer;
-            display: flex; align-items: center; border-radius: 0 var(--border-radius) var(--border-radius) 0;
-        }
+        .password-input-group { position: relative; }
+        .password-toggle-btn { position: absolute; right: 1px; top: 1px; bottom: 1px; z-index: 10; height: calc(100% - 2px); border: none; background: transparent; padding: 0 0.75rem; color: var(--secondary-color); cursor: pointer; display: flex; align-items: center; border-radius: 0 var(--border-radius) var(--border-radius) 0; }
         .password-toggle-btn:hover { color: var(--primary-color); }
-        .password-toggle-btn:focus { outline: none; box-shadow: none; } /* Prevent default focus */
-        .input-group .form-control[type="password"], .input-group .form-control[type="text"] { padding-right: 2.8rem; /* Space for button */ }
+        .password-toggle-btn:focus { outline: none; box-shadow: none; }
+        .input-group .form-control[type="password"], .input-group .form-control[type="text"] { padding-right: 2.8rem; }
 
         .submit-button { background: var(--primary-color); color: white; border: none; padding: .75rem 1.5rem; width: 100%; border-radius: 50px; cursor: pointer; font-size: .95rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; transition: all 0.2s ease; margin-top: 1.5rem; box-shadow: 0 2px 5px rgba(78, 115, 223, 0.3); display: flex; align-items: center; justify-content: center; }
         .submit-button i { margin-right: 0.5rem; font-size: 1rem; }
@@ -148,53 +180,54 @@ $background_style = file_exists($background_image_path)
         .voter-login-link a:hover { color: var(--primary-color); text-decoration: underline; }
         .voter-login-link i { margin-right: .3rem; vertical-align: -1px;}
 
-         /* Feature Cards (Copied & Adjusted from previous context) */
+         /* Feature Cards */
          .feature-section { margin-top: 3rem; }
-         .feature-card { transition: all 0.3s ease-in-out; background: var(--white-color); border-radius: var(--border-radius); height: 100%; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm);}
+         .feature-card { transition: all 0.3s ease-in-out; background: var(--white-color); border-radius: var(--border-radius-lg); height: 100%; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm);}
          .feature-card:hover { transform: translateY(-8px); box-shadow: var(--shadow) !important; }
-         .feature-icon { transition: all 0.3s ease; width: 60px; height: 60px; background: var(--primary-light); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem; }
-         .feature-icon i { font-size: 1.8rem; color: var(--primary-dark); transition: transform 0.3s ease;}
-         .feature-card:hover .feature-icon { transform: scale(1.1) rotate(-5deg); background: var(--primary-color); }
+         .feature-icon { transition: all 0.3s ease; width: 65px; height: 65px; background: var(--primary-light); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem; }
+         .feature-icon i { font-size: 2rem; color: var(--primary-dark); transition: transform 0.3s ease;}
+         .feature-card:hover .feature-icon { transform: scale(1.1) rotate(-8deg); background: var(--primary-color); }
          .feature-card:hover .feature-icon i { color: var(--white-color); }
          .feature-card .card-title { font-size: 1.15rem; font-weight: 700; font-family: var(--font-family-primary); color: var(--primary-dark); margin-bottom: .75rem; }
          .feature-card .card-text { color: var(--dark-color); font-size: 0.9rem; line-height: 1.6; }
-         @media (max-width: 768px) { .feature-card { margin-bottom: 1.5rem; } .login-container { padding: 1.5rem; } }
+         @media (max-width: 992px) { .feature-card { margin-bottom: 1.5rem; } }
+         @media (max-width: 768px) { .login-container { padding: 1.5rem; } }
+         footer small { font-size: .8rem;}
     </style>
 </head>
 <body>
     <div class="main-wrapper container">
         <div class="row justify-content-center">
-            <div class="col-lg-5 col-md-8"> 
+            <div class="col-lg-5 col-md-8">
                 <div class="login-wrapper">
                     <main class="login-container">
-        <div class="logo-container">
+                        <div class="logo-container">
                             <img src="../assets/images/gombe-ss-logo.png" alt="School Logo" class="logo" onerror="this.style.display='none';">
                              <h1 class="login-title">Administrator Login</h1>
-        </div>
-        
+                        </div>
+
                         <?php if ($error): ?>
                             <div class="alert alert-danger alert-dismissible fade show" role="alert">
                                 <i class="bi bi-exclamation-triangle-fill"></i>
                                 <div><?php echo htmlspecialchars($error); ?></div>
                                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                             </div>
-        <?php endif; ?>
-        
-        <form method="post" action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>">
+                        <?php endif; ?>
+
+                        <form method="post" action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>">
                             <div class="mb-3">
                                 <label for="username" class="form-label">Username</label>
                                 <div class="input-group">
-                                    <span class="input-group-text"><i class="bi bi-person-fill"></i></span>
+                                     <span class="input-group-text"><i class="bi bi-person-fill"></i></span>
                                     <input type="text" class="form-control" id="username" name="username" value="<?php echo htmlspecialchars($submitted_username); ?>" required autocomplete="username">
                                 </div>
                             </div>
                             <div class="mb-3">
                                 <label for="password" class="form-label">Password</label>
-                                <div class="input-group">
+                                <div class="input-group password-input-group">
                                     <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
                                     <input type="password" class="form-control" id="password" name="password" required autocomplete="current-password">
-                                     
-                                     <button class="password-toggle-btn" type="button" id="togglePasswordBtn" aria-label="Toggle password visibility">
+                                     <button class="password-toggle-btn" type="button" id="togglePasswordBtn" aria-label="Show password">
                                         <i class="bi bi-eye-fill"></i>
                                     </button>
                                 </div>
@@ -204,7 +237,7 @@ $background_style = file_exists($background_image_path)
                             </button>
                         </form>
 
-                        <div class="voter-login-link mt-4">
+                         <div class="voter-login-link mt-4">
                             <a href="../index.php">
                                  <i class="bi bi-people-fill"></i> Back to Student Voter Login
                             </a>
@@ -219,33 +252,33 @@ $background_style = file_exists($background_image_path)
 
          <div class="row justify-content-center feature-section">
             <div class="col-lg-4 col-md-6 mb-4">
-                <div class="card feature-card border-0">
-                    <div class="card-body text-center p-4">
-                        <div class="feature-icon"> <i class="bi bi-shield-lock-fill"></i> </div>
-                        <h4 class="card-title mb-3">Secure Election</h4>
-                        <p class="card-text">Ensures the integrity of every vote using secure codes and processes.</p>
+                <div class="card feature-card border-0 h-100">
+                    <div class="card-body text-center p-4 p-xl-5">
+                        <div class="feature-icon"> <i class="bi bi-shield-check"></i> </div>
+                        <h4 class="card-title mb-3">Secure & Reliable</h4>
+                        <p class="card-text">Ensures vote integrity with secure codes and robust validation.</p>
                     </div>
                 </div>
             </div>
             <div class="col-lg-4 col-md-6 mb-4">
-                <div class="card feature-card border-0">
-                    <div class="card-body text-center p-4">
+                <div class="card feature-card border-0 h-100">
+                    <div class="card-body text-center p-4 p-xl-5">
                          <div class="feature-icon"> <i class="bi bi-graph-up-arrow"></i> </div>
-                        <h4 class="card-title mb-3">Real-time Results</h4>
-                        <p class="card-text">Monitor election progress and view results instantly as they come in.</p>
+                        <h4 class="card-title mb-3">Insightful Results</h4>
+                        <p class="card-text">Monitor election progress and view detailed results in real-time.</p>
                     </div>
                 </div>
             </div>
             <div class="col-lg-4 col-md-6 mb-4">
-                <div class="card feature-card border-0">
-                    <div class="card-body text-center p-4">
-                         <div class="feature-icon"> <i class="bi bi-people-fill"></i> </div>
+                <div class="card feature-card border-0 h-100">
+                    <div class="card-body text-center p-4 p-xl-5">
+                         <div class="feature-icon"> <i class="bi bi-gear-wide-connected"></i> </div>
                         <h4 class="card-title mb-3">Easy Management</h4>
-                        <p class="card-text">Effortlessly manage elections, positions, candidates, and voters.</p>
+                        <p class="card-text">Effortlessly configure elections, positions, candidates, and codes.</p>
                     </div>
                 </div>
             </div>
-    </div>
+        </div>
 
     </div> <script nonce="<?php echo $nonce; ?>" src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
      <script nonce="<?php echo $nonce; ?>">
@@ -253,26 +286,20 @@ $background_style = file_exists($background_image_path)
              const usernameInput = document.getElementById('username');
              if(usernameInput && !usernameInput.value) usernameInput.focus();
 
-             // Password Toggle Functionality
              const passwordInput = document.getElementById('password');
              const toggleBtn = document.getElementById('togglePasswordBtn');
              const toggleIcon = toggleBtn ? toggleBtn.querySelector('i') : null;
 
              if (passwordInput && toggleBtn && toggleIcon) {
                  toggleBtn.addEventListener('click', function() {
-                     // Toggle the type attribute
                      const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
                      passwordInput.setAttribute('type', type);
-
-                     // Toggle the icon
                      toggleIcon.classList.toggle('bi-eye-fill');
                      toggleIcon.classList.toggle('bi-eye-slash-fill');
-
-                     // Set aria-label for accessibility
                      this.setAttribute('aria-label', type === 'password' ? 'Show password' : 'Hide password');
                  });
              }
          });
      </script>
 </body>
-</html> 
+</html>
