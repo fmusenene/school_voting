@@ -253,7 +253,7 @@ $pageTitle = "Live Election Results";
                                                  ${position.total_votes > 0 ? `
                                                  <div class="candidate-progress progress" style="height: 16px;" title="${percentage}%">
                                                       <div class="candidate-progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: ${progressBarWidth}%" aria-valuenow="${percentage}" aria-valuemin="0" aria-valuemax="100">
-                                                           ${percentage >= 15 ? percentage+'%' : ''} {/* Only show % if bar is wide enough */}
+                                                           ${percentage >= 15 ? percentage+'%' : ''}
                                                       </div>
                                                  </div>` : ''}
                                             </div>
