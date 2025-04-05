@@ -17,13 +17,6 @@ Thumbs.db
 xampp/
 *.log
 
-# Uploaded files
-uploads/
-*.jpg
-*.jpeg
-*.png
-*.gif
-
 # Configuration files
 config/database.php
 
