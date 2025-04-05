@@ -22,7 +22,7 @@ require_once "includes/session.php"; // Provides isAdminLoggedIn() function
 
 // --- Admin Authentication Check (for Page Access) ---
 if (!isAdminLoggedIn()) {
-    header("Location: admin/login.php"); // Redirect to login if not admin
+    header("Location: /admin/login.php"); // Redirect to login if not admin
     exit();
 }
 
