@@ -116,7 +116,7 @@ $election = mysqli_fetch_assoc($election_result);
                         </thead>
                         <tbody>
                             <?php
-                            $sql = "SELECT * FROM positions WHERE election_id = $election_id ORDER BY id";
+                            $sql = "SELECT * FROM positions WHERE election_id = $election_id ORDER BY id ASC";
                             $result = mysqli_query($conn, $sql);
                             while ($position = mysqli_fetch_assoc($result)) {
                                 echo "<tr>";

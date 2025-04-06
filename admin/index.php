@@ -266,8 +266,8 @@ try {
                     <i class="bi bi-person-badge"></i>
                 </div>
                 <h3 class="stats-number"><?php echo $positions_total; ?></h3>
-                <p class="stats-label">Positions</p>
-                <div class="stats-detail">Total registered positions</div>
+                <p class="stats-label">Posts</p>
+                <div class="stats-detail">Total registered Posts</div>
             </div>
         </div>
 
@@ -311,7 +311,7 @@ try {
                         <tr>
                             <th>Time</th>
                             <th>Election</th>
-                            <th>Position</th>
+                            <th>Post</th>
                             <th>Candidate</th>
                             <th>Voting Code</th>
                         </tr>

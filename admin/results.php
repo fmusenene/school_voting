@@ -200,7 +200,7 @@ try {
     $results_sql .= " GROUP BY e.id, e.title, e.status, p.id, p.title, c.id, c.name, c.photo ";
 
     // Order appropriately
-    $results_sql .= " ORDER BY e.created_at DESC, p.id, vote_count DESC, c.name";
+    $results_sql .= " ORDER BY e.created_at DESC, p.id ASC, vote_count DESC, c.name";
 
     // Prepare and execute
     $results_stmt = $conn->prepare($results_sql);

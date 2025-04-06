@@ -1,12 +1,19 @@
 <?php
 // Start session and include necessary files
 if (session_status() === PHP_SESSION_NONE) {
-session_start();
+    session_start();
 }
+
+// Generate CSP nonce if not exists
+if (empty($_SESSION['csp_nonce'])) {
+    $_SESSION['csp_nonce'] = base64_encode(random_bytes(16));
+}
+$nonce = htmlspecialchars($_SESSION['csp_nonce'], ENT_QUOTES, 'UTF-8');
+
 require_once "../config/database.php"; // Relative path from admin folder
 require_once "includes/session.php"; // Includes isAdminLoggedIn()
 
-// Check if admin is logged in
+// --- Security Check ---
 if (!isAdminLoggedIn()) {
     header("Location: login.php");
     exit();
@@ -14,22 +21,115 @@ if (!isAdminLoggedIn()) {
 
 // --- Configuration ---
 date_default_timezone_set('Asia/Manila'); // Adjust timezone
-error_reporting(E_ALL); // Dev
-ini_set('display_errors', 1); // Dev
-// Production settings:
-// ini_set('display_errors', 0);
-// error_reporting(0);
+// error_reporting(E_ALL); // Dev for debugging
+// ini_set('display_errors', 1); // Dev for debugging
+ini_set('display_errors', 0); // Prod
+error_reporting(0); // Prod
 
-// Generate CSP nonce
-if (empty($_SESSION['csp_nonce'])) {
-    $_SESSION['csp_nonce'] = base64_encode(random_bytes(16));
+
+// --- Handle Bulk Delete Action ---
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['action'] === 'delete_bulk') {
+    header('Content-Type: application/json'); // Set header for JSON response
+    $response = ['success' => false, 'message' => 'Invalid request or no candidates selected.'];
+    $deleted_count = 0;
+    $error_details = [];
+
+    if (isset($_POST['selected_ids']) && is_array($_POST['selected_ids']) && !empty($_POST['selected_ids'])) {
+        $selected_ids = array_map('intval', $_POST['selected_ids']); // Sanitize IDs
+
+        if (!empty($selected_ids)) {
+            // Use the global $conn variable established in database.php
+            global $conn;
+
+            try {
+                $conn->beginTransaction();
+
+                // Prepare statements outside the loop
+                $get_photo_sql = "SELECT photo FROM candidates WHERE id = :id";
+                $get_photo_stmt = $conn->prepare($get_photo_sql);
+
+                $delete_sql = "DELETE FROM candidates WHERE id = :id";
+                $delete_stmt = $conn->prepare($delete_sql);
+
+                foreach ($selected_ids as $candidate_id) {
+                    if ($candidate_id > 0) {
+                        // 1. Get photo path before deleting record
+                        $get_photo_stmt->execute([':id' => $candidate_id]);
+                        $photo_path = $get_photo_stmt->fetchColumn();
+
+                        // 2. Delete candidate record
+                        if ($delete_stmt->execute([':id' => $candidate_id])) {
+                            if ($delete_stmt->rowCount() > 0) {
+                                $deleted_count++;
+                                // 3. Delete photo file if it exists
+                                if ($photo_path) {
+                                     // Construct absolute path from script location
+                                     $absolute_photo_path = realpath(__DIR__ . "/../" . ltrim($photo_path, '/'));
+                                     if ($absolute_photo_path && file_exists($absolute_photo_path)) {
+                                          if (!@unlink($absolute_photo_path)) { // Suppress warning, log error
+                                               error_log("Bulk Delete: Failed to delete photo file for candidate ID {$candidate_id}: {$absolute_photo_path}");
+                                                // Log error but continue transaction
+                                          }
+                                     } else if ($absolute_photo_path) {
+                                           error_log("Bulk Delete: Photo file record existed but file not found at: {$absolute_photo_path}");
+                                     }
+                                }
+                            }
+                        } else {
+                            // Log error for specific ID if delete failed
+                            $errorInfo = $delete_stmt->errorInfo();
+                            error_log("Bulk Delete: Failed to delete candidate ID {$candidate_id}: " . ($errorInfo[2] ?? 'Unknown PDO error'));
+                            $error_details[] = "Could not delete candidate ID {$candidate_id}.";
+                        }
+                    }
+                } // End foreach loop
+
+                if (empty($error_details)) {
+                    $conn->commit();
+                    $response['success'] = true;
+                    $response['message'] = "Successfully deleted {$deleted_count} candidate(s).";
+                } else {
+                    // Rollback if any individual deletion failed
+                    $conn->rollBack();
+                    $response['message'] = "Operation failed. Deleted {$deleted_count} candidates successfully before encountering errors: " . implode(" ", $error_details);
+                     http_response_code(500); // Indicate partial failure/server error
+                }
+
+            } catch (PDOException $e) {
+                if ($conn->inTransaction()) {
+                    $conn->rollBack();
+                }
+                error_log("Bulk Delete PDOException: " . $e->getMessage());
+                $response['message'] = 'A database error occurred during bulk deletion.';
+                http_response_code(500);
+            } catch (Exception $e) {
+                 if ($conn->inTransaction()) {
+                    $conn->rollBack();
+                 }
+                 error_log("Bulk Delete Exception: " . $e->getMessage());
+                 $response['message'] = 'An unexpected error occurred: ' . $e->getMessage();
+                 http_response_code(500);
+            }
+        } else {
+             $response['message'] = 'No valid candidate IDs were selected.';
+             http_response_code(400);
+        }
+    } else {
+         $response['message'] = 'No candidates selected for deletion.';
+         http_response_code(400);
+    }
+
+    echo json_encode($response);
+    exit; // Crucial: Stop script execution after handling AJAX request
 }
-$nonce = htmlspecialchars($_SESSION['csp_nonce'], ENT_QUOTES, 'UTF-8');
+// --- End Bulk Delete Action ---
+
 
 // --- Initial Fetch for Filters & Basic Info ---
 $elections = [];
 $positions_for_filter = []; // Positions just for the filter dropdown
 $candidates = [];
+// Initialize stats array
 $stats = ['total_candidates' => 0, 'total_positions' => 0, 'total_votes' => 0];
 $fetch_error = null;
 $selected_election = 'all';
@@ -39,11 +139,12 @@ try {
     // Get all elections for filter
     $elections = $conn->query("SELECT id, title FROM elections ORDER BY start_date DESC, title ASC")->fetchAll(PDO::FETCH_ASSOC);
 
-    // Get selected filters
+    // Get selected filters from URL
     $selected_election = isset($_GET['election_id']) && $_GET['election_id'] !== 'all' ? filter_input(INPUT_GET, 'election_id', FILTER_VALIDATE_INT) : 'all';
     $selected_position = isset($_GET['position_id']) && $_GET['position_id'] !== 'all' ? filter_input(INPUT_GET, 'position_id', FILTER_VALIDATE_INT) : 'all';
 
-    // Get positions for filter dropdown (optionally filter based on selected election)
+
+    // Get positions for filter dropdown (optionally pre-filter based on selected election)
     $positions_filter_sql = "SELECT p.id, p.title, p.election_id, e.title as election_title
                            FROM positions p LEFT JOIN elections e ON p.election_id = e.id";
     $pos_filter_params = [];
@@ -51,19 +152,19 @@ try {
         $positions_filter_sql .= " WHERE p.election_id = :election_id";
         $pos_filter_params[':election_id'] = $selected_election;
     }
-     $positions_filter_sql .= " ORDER BY e.start_date DESC, p.title ASC";
+     $positions_filter_sql .= " ORDER BY e.start_date DESC, p.id ASC, p.title ASC";
      $stmt_pos_filter = $conn->prepare($positions_filter_sql);
      $stmt_pos_filter->execute($pos_filter_params);
      $positions_for_filter = $stmt_pos_filter->fetchAll(PDO::FETCH_ASSOC);
 
 
-    // --- Fetch Main Candidate List ---
+    // --- Fetch Main Candidate List based on filters ---
     $sql_candidates = "SELECT c.id, c.name, c.description, c.photo, c.position_id,
                         p.title as position_title, p.election_id, e.title as election_title
-        FROM candidates c
-        LEFT JOIN positions p ON c.position_id = p.id
-        LEFT JOIN elections e ON p.election_id = e.id
-                       WHERE 1=1"; // Start WHERE clause
+                       FROM candidates c
+                       LEFT JOIN positions p ON c.position_id = p.id
+                       LEFT JOIN elections e ON p.election_id = e.id
+                       WHERE 1=1"; // Start WHERE clause always true
 
     $params_candidates = [];
     if ($selected_election !== 'all' && $selected_election) {
@@ -80,146 +181,28 @@ try {
     $stmt_candidates->execute($params_candidates);
     $candidates = $stmt_candidates->fetchAll(PDO::FETCH_ASSOC);
 
-    // --- Fetch Overall Stats ---
-    // Use conditions similar to candidate fetching for accuracy if needed, or keep simple totals
-    $stats['total_candidates'] = (int)$conn->query("SELECT COUNT(*) FROM candidates")->fetchColumn(); // Overall total
-    $stats['total_positions'] = (int)$conn->query("SELECT COUNT(*) FROM positions")->fetchColumn(); // Overall total
-    $stats['total_votes'] = (int)$conn->query("SELECT COUNT(*) FROM votes")->fetchColumn(); // Overall total
+    // --- DYNAMIC STATS FETCHING ---
+    // Fetch Overall Stats (these are site-wide totals, not filtered by selection)
+    $stats['total_candidates'] = (int)$conn->query("SELECT COUNT(*) FROM candidates")->fetchColumn();
+    $stats['total_positions'] = (int)$conn->query("SELECT COUNT(*) FROM positions")->fetchColumn();
+    $stats['total_votes'] = (int)$conn->query("SELECT COUNT(*) FROM votes")->fetchColumn();
+    // --- END DYNAMIC STATS FETCHING ---
+
 
 } catch (PDOException $e) {
     error_log("Candidates Page Error: " . $e->getMessage());
     $fetch_error = "Could not load candidates data due to a database issue.";
     $elections = []; $positions_for_filter = []; $candidates = [];
-    $stats = ['total_candidates' => 0, 'total_positions' => 0, 'total_votes' => 0];
-}
-
-// --- Handle POST Actions (Refined for AJAX) ---
-// This section will now primarily handle AJAX requests from the JS below.
-// We assume specific backend scripts (add_candidate.php, edit_candidate.php, delete_candidate.php)
-// are preferred, but if POSTing to *this* file, the logic needs routing.
-// Example: Handling ADD action if posted here (less ideal than separate file)
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['action'] === 'create') {
-    header('Content-Type: application/json'); // Expect AJAX, respond JSON
-    $response = ['success' => false, 'message' => 'Invalid request.']; // Default error
-
-    try {
-        // --- Validation ---
-        $name = trim($_POST['name'] ?? '');
-        $position_id = filter_input(INPUT_POST, 'position_id', FILTER_VALIDATE_INT);
-        $description = trim($_POST['description'] ?? '');
-
-        if (empty($name) || !$position_id) {
-            throw new Exception("Name and Position are required.");
-        }
-
-        // --- Photo Upload Handling ---
-        $photo_path_db = null; // Path to store in DB
-        if (isset($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
-             $upload_dir = "../uploads/candidates/"; // Path relative to *this* script
-             if (!is_dir($upload_dir)) { if (!mkdir($upload_dir, 0775, true)) throw new Exception("Failed to create upload directory."); }
-
-             $allowed_types = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
-             $file_info = pathinfo($_FILES['photo']['name']);
-             $file_extension = strtolower($file_info['extension'] ?? '');
-             $file_size = $_FILES['photo']['size'];
-             $max_size = 5 * 1024 * 1024; // 5MB limit
-
-             if (!in_array($file_extension, $allowed_types)) throw new Exception("Invalid file type. Only JPG, PNG, GIF, WEBP allowed.");
-             if ($file_size > $max_size) throw new Exception("File size exceeds the 5MB limit.");
-
-             $new_filename = uniqid('cand_', true) . '.' . $file_extension;
-             $target_path_absolute = $upload_dir . $new_filename;
-
-             if (move_uploaded_file($_FILES['photo']['tmp_name'], $target_path_absolute)) {
-                // Store path relative to web root (or consistent base) for DB
-                 $photo_path_db = 'uploads/candidates/' . $new_filename;
-            } else {
-                 throw new Exception("Failed to move uploaded file. Check permissions.");
-             }
-        }
-
-        // --- Database Insertion ---
-         $sql = "INSERT INTO candidates (name, position_id, description, photo) VALUES (:name, :position_id, :description, :photo)";
-         $stmt = $conn->prepare($sql);
-         $stmt->bindParam(':name', $name);
-         $stmt->bindParam(':position_id', $position_id, PDO::PARAM_INT);
-         $stmt->bindParam(':description', $description);
-         $stmt->bindParam(':photo', $photo_path_db); // Bind the potentially null path
-
-         if ($stmt->execute()) {
-             $response = ['success' => true, 'message' => 'Candidate added successfully!'];
-         } else {
-             throw new Exception("Database error while adding candidate.");
-         }
-
-    } catch (PDOException $e) {
-         error_log("Add Candidate PDO Error: " . $e->getMessage());
-         $response['message'] = "Database error processing request.";
-    } catch (Exception $e) {
-         error_log("Add Candidate Error: " . $e->getMessage());
-         $response['message'] = $e->getMessage(); // Use specific error message
-    }
-
-    echo json_encode($response);
-    exit; // Important to stop script after JSON response
-}
-
-// Handle Bulk Delete (Example if POSTing here)
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['action'] === 'delete_bulk') {
-    header('Content-Type: application/json');
-    $response = ['success' => false, 'message' => 'No candidates selected or invalid request.'];
-
-    if (!empty($_POST['selected_ids']) && is_array($_POST['selected_ids'])) {
-        $ids_to_delete = array_map('intval', $_POST['selected_ids']); // Sanitize to integers
-        $placeholders = implode(',', array_fill(0, count($ids_to_delete), '?'));
-
-        if (!empty($placeholders)) {
-            try {
-                // Optional: Fetch photos to delete files first (more robust)
-                 $sql_photos = "SELECT photo FROM candidates WHERE id IN ($placeholders)";
-                 $stmt_photos = $conn->prepare($sql_photos);
-                 $stmt_photos->execute($ids_to_delete);
-                 $photos_to_delete = $stmt_photos->fetchAll(PDO::FETCH_COLUMN);
-
-                 // Delete from database
-                $delete_sql = "DELETE FROM candidates WHERE id IN ($placeholders)";
-                $stmt_delete = $conn->prepare($delete_sql);
-
-                if ($stmt_delete->execute($ids_to_delete)) {
-                    // Attempt to delete photo files
-                    foreach ($photos_to_delete as $photo_file) {
-                        if (!empty($photo_file)) {
-                             $file_path_absolute = realpath(__DIR__ . '/../' . ltrim($photo_file, '/')); // Correct path from admin folder
-                            if ($file_path_absolute && file_exists($file_path_absolute)) {
-                                if (!unlink($file_path_absolute)) {
-                                     error_log("Failed to delete candidate photo file: " . $file_path_absolute);
-                                }
-                            }
-                        }
-                    }
-                    $response = ['success' => true, 'message' => 'Selected candidates deleted successfully!'];
-        } else {
-                    throw new Exception("Database error during bulk delete.");
-                }
-            } catch (PDOException $e) {
-                 error_log("Bulk Delete PDO Error: " . $e->getMessage());
-                 $response['message'] = "Database error during deletion.";
-            } catch (Exception $e) {
-                 error_log("Bulk Delete Error: " . $e->getMessage());
-                 $response['message'] = $e->getMessage();
-            }
-        }
-    }
-    echo json_encode($response);
-    exit;
+    $stats = ['total_candidates' => 0, 'total_positions' => 0, 'total_votes' => 0]; // Reset on error
 }
 
 
-// --- Include Header ---
+// --- Include Header (AFTER all PHP logic) ---
 require_once "includes/header.php";
 ?>
 
-<style nonce="<?php echo $nonce; ?>">
+<style nonce="<?php echo htmlspecialchars($nonce, ENT_QUOTES, 'UTF-8'); ?>">
+    /* Inherit styles from header.php or add specific overrides */
     :root {
         --primary-hue: 226; --primary-color: hsl(var(--primary-hue), 76%, 58%); --primary-light: hsl(var(--primary-hue), 76%, 95%); --primary-dark: hsl(var(--primary-hue), 70%, 48%);
         --secondary-color: #858796; --success-color: #1cc88a; --info-color: #36b9cc; --warning-color: #f6c23e; --danger-color: #e74a3b;
@@ -234,6 +217,7 @@ require_once "includes/header.php";
     .page-header { margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color); }
     .page-header h1 { color: var(--primary-dark); font-family: var(--font-family-primary); font-weight: 700; }
     .page-header .btn { box-shadow: var(--shadow-sm); font-weight: 600; font-size: 0.875rem; }
+    .page-header .btn i { vertical-align: -2px; }
 
     /* Stats Cards */
     .stats-card { transition: all 0.25s ease-out; border: none; border-left: 4px solid var(--primary-color); border-radius: var(--border-radius); background-color: var(--white-color); box-shadow: var(--shadow-sm); height: 100%; }
@@ -243,6 +227,7 @@ require_once "includes/header.php";
     .stats-card:hover .stats-card-icon { opacity: 0.25; transform: translateY(-50%) scale(1.1); }
     .stats-card .stat-label { font-size: .7rem; font-weight: 700; text-transform: uppercase; margin-bottom: .1rem; color: var(--secondary-color); letter-spacing: .5px;}
     .stats-card .stat-value { font-size: 1.9rem; font-weight: 700; line-height: 1.1; color: var(--dark-color); }
+    .stats-card .stat-detail { font-size: 0.8rem; color: var(--secondary-color); }
     /* Colors */
     .stats-card.border-left-primary { border-left-color: var(--primary-color); } .stats-card.border-left-primary .stats-card-icon { color: var(--primary-color); }
     .stats-card.border-left-success { border-left-color: var(--success-color); } .stats-card.border-left-success .stats-card-icon { color: var(--success-color); }
@@ -255,24 +240,24 @@ require_once "includes/header.php";
 
     /* Candidates Table Card */
     .candidates-card { border: none; border-radius: var(--border-radius-lg); box-shadow: var(--shadow); }
-    .candidates-card .card-header { background-color: var(--white-color); border-bottom: 1px solid var(--border-color); font-weight: 700; color: var(--primary-dark); padding: 1rem 1.25rem; border-top-left-radius: var(--border-radius-lg); border-top-right-radius: var(--border-radius-lg); }
+    .candidates-card .card-header { background-color: var(--white-color); border-bottom: 1px solid var(--border-color); font-weight: 700; color: var(--primary-dark); padding: 1rem 1.25rem; }
     .candidates-table { margin-bottom: 0; }
     .candidates-table thead th { background-color: var(--gray-100); border-bottom: 1px solid var(--gray-300); border-top: none; font-size: .8rem; font-weight: 700; text-transform: uppercase; color: var(--gray-600); padding: .75rem 1rem; white-space: nowrap; letter-spacing: .5px;}
     .candidates-table tbody td { padding: .7rem 1rem; vertical-align: middle; border-top: 1px solid var(--border-color); font-size: 0.9rem; }
     .candidates-table tbody tr:first-child td { border-top: none; }
     .candidates-table tbody tr:hover { background-color: var(--primary-light); }
     .candidates-table .candidate-name { font-weight: 600; color: var(--dark-color); font-size: 0.95rem;}
-    .candidates-table .position-details { font-size: 0.85rem; color: var(--secondary-color); display: block; }
-    .candidates-table .candidate-photo { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border-color); }
+    .candidates-table .position-details { font-size: 0.85rem; color: var(--secondary-color); display: block; max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+    .candidates-table .candidate-photo { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border-color); background-color: var(--gray-200); }
     .candidates-table .action-buttons .btn { padding: 0.25rem 0.5rem; font-size: 0.8rem; margin-left: 0.25rem; box-shadow: var(--shadow-sm); }
     .candidates-table .action-buttons .btn:hover { transform: scale(1.1); }
     .candidates-table .form-check-input { cursor: pointer; }
     .candidates-table .no-candidates td { text-align: center; padding: 2.5rem; }
-    .candidates-table .no-candidates i { font-size: 2.5rem; margin-bottom: .75rem; display: block; color: var(--gray-400); }
-    .candidates-table .no-candidates p { color: var(--gray-500); font-size: 1rem;}
+    .candidates-table .no-candidates i { font-size: 2.5rem; margin-bottom: .75rem; display: block; color: var(--gray-300); }
+    .candidates-table .no-candidates p { color: var(--secondary-color); font-size: 1rem;}
 
-    /* Table Header Actions */
-    .table-actions { padding: .5rem 1rem; background-color: var(--gray-100); border-top: 1px solid var(--border-color); }
+    /* Table Footer Actions */
+    .table-actions { padding: .75rem 1.25rem; background-color: var(--gray-100); border-top: 1px solid var(--border-color); }
     .table-actions .btn { font-size: .8rem; }
 
     /* Modals */
@@ -281,9 +266,13 @@ require_once "includes/header.php";
     .modal-footer { background-color: var(--gray-100); border-top: 1px solid var(--border-color); }
     .was-validated .form-control:invalid, .form-control.is-invalid { border-color: var(--danger-color); background-image: none;}
     .was-validated .form-control:invalid:focus, .form-control.is-invalid:focus { box-shadow: 0 0 0 .25rem rgba(231, 74, 59, .25); }
-    #deleteConfirmModal .modal-header { background-color: var(--danger-color); color: white; }
-    #deleteConfirmModal .btn-close { filter: brightness(0) invert(1);}
-    #photoPreview { max-width: 150px; max-height: 150px; margin-top: .5rem; border-radius: var(--border-radius); border: 1px solid var(--border-color); display: none; } /* Image preview */
+    .was-validated .form-select:invalid, .form-select.is-invalid { border-color: var(--danger-color); }
+    .was-validated .form-select:invalid:focus, .form-select.is-invalid:focus { border-color: var(--danger-color); box-shadow: 0 0 0 .25rem rgba(231, 74, 59, .25); }
+    .invalid-feedback { font-size: .8rem; }
+    #deleteSingleConfirmModal .modal-header, #deleteBulkConfirmModal .modal-header { background-color: var(--danger-color); color: white; }
+    #deleteSingleConfirmModal .btn-close, #deleteBulkConfirmModal .btn-close { filter: brightness(0) invert(1);}
+    #add_photoPreview, #edit_photoPreview { height: 150px; width: 150px; object-fit: cover; border: 1px solid var(--border-color); background-color: var(--gray-100);} /* Image preview */
+    .img-thumbnail { padding: .25rem; background-color: #fff; border: 1px solid var(--border-color); border-radius: .25rem; max-width: 100%; height: auto; }
 
     /* Notification Toast */
     .toast-container { z-index: 1090; }
@@ -304,12 +293,15 @@ require_once "includes/header.php";
         </button>
     </div>
 
-     <?php if ($fetch_error): ?>
-        <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i> <?php echo htmlspecialchars($fetch_error); ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-    <?php endif; ?>
+     <div id="alertPlaceholder">
+         <?php if ($fetch_error): ?>
+            <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i> <?php echo htmlspecialchars($fetch_error); ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
+         </div>
+
 
     <div class="row g-3 mb-4">
         <div class="col-lg-4 col-md-6 mb-3">
@@ -317,33 +309,33 @@ require_once "includes/header.php";
                 <div class="card-body">
                     <div>
                         <div class="stat-label text-primary">Total Candidates</div>
-                        <div class="stat-value" id="stat-total-candidates">0</div>
-                        </div>
+                        <div class="stat-value" id="stat-total-candidates"><?php echo number_format($stats['total_candidates'] ?? 0); ?></div>
+                    </div>
                     <div class="stat-detail">Across all elections</div>
                     <i class="bi bi-people-fill stats-card-icon"></i>
-                        </div>
-                    </div>
                 </div>
+            </div>
+        </div>
         <div class="col-lg-4 col-md-6 mb-3">
             <div class="stats-card border-left-success h-100">
                 <div class="card-body">
                     <div>
                         <div class="stat-label text-success">Total Positions</div>
-                        <div class="stat-value" id="stat-total-positions">0</div>
-                        </div>
-                     <div class="stat-detail">With active candidates</div>
-                    <i class="bi bi-tag-fill stats-card-icon"></i>
-                        </div>
+                        <div class="stat-value" id="stat-total-positions"><?php echo number_format($stats['total_positions'] ?? 0); ?></div>
                     </div>
+                     <div class="stat-detail">Across all elections</div>
+                    <i class="bi bi-tag-fill stats-card-icon"></i>
                 </div>
-        <div class="col-lg-4 col-md-6 mb-3">
+            </div>
+        </div>
+        <div class="col-lg-4 col-md-12">
              <div class="stats-card border-left-warning h-100">
                 <div class="card-body">
                     <div>
                         <div class="stat-label text-warning">Total Votes Recorded</div>
-                        <div class="stat-value" id="stat-total-votes">0</div>
-                        </div>
-                     <div class="stat-detail">For all candidates</div>
+                        <div class="stat-value" id="stat-total-votes"><?php echo number_format($stats['total_votes'] ?? 0); ?></div>
+                    </div>
+                     <div class="stat-detail">Overall system votes</div>
                      <i class="bi bi-check2-square stats-card-icon"></i>
                 </div>
             </div>
@@ -351,60 +343,57 @@ require_once "includes/header.php";
     </div>
 
     <div class="filter-bar mb-4">
-        <div class="row g-3 align-items-center">
+        <div class="row g-2 align-items-center">
             <div class="col-md-auto">
-                <label for="electionFilter" class="col-form-label">Filter:</label>
+                <label class="col-form-label col-form-label-sm fw-bold">Filter:</label>
             </div>
-            <div class="col-md-4">
-                <select class="form-select form-select-sm" id="electionFilter">
+            <div class="col-md">
+                <select class="form-select form-select-sm" id="electionFilter" aria-label="Filter by election">
                     <option value="all" <?php echo $selected_election === 'all' ? 'selected' : ''; ?>>All Elections</option>
                     <?php foreach ($elections as $election): ?>
                         <option value="<?php echo $election['id']; ?>" <?php echo $selected_election == $election['id'] ? 'selected' : ''; ?>>
                             <?php echo htmlspecialchars($election['title']); ?>
                         </option>
                     <?php endforeach; ?>
+                     <?php if (empty($elections)): ?> <option disabled>No elections found</option> <?php endif; ?>
                 </select>
             </div>
-            <div class="col-md-4">
-                 <select class="form-select form-select-sm" id="positionFilter" <?php echo empty($positions_for_filter) ? 'disabled' : ''; ?>>
+            <div class="col-md">
+                 <select class="form-select form-select-sm" id="positionFilter" aria-label="Filter by position" <?php echo empty($positions_for_filter) ? 'disabled' : ''; ?>>
                     <option value="all" <?php echo $selected_position === 'all' ? 'selected' : ''; ?>>All Positions</option>
-                    <?php foreach ($positions_for_filter as $position): ?>
-                         {/* Filtered by JS or pre-filtered by PHP */}
-                        <option value="<?php echo $position['id']; ?>" 
+                     <?php foreach ($positions_for_filter as $position): ?>
+                        <option value="<?php echo $position['id']; ?>"
                                 data-election-id="<?php echo $position['election_id']; ?>"
                                 <?php echo $selected_position == $position['id'] ? 'selected' : ''; ?>
-                                <?php // Hide if election filter is set and doesn't match
+                                <?php // Hide initially if election filter is set and doesn't match
                                 if ($selected_election !== 'all' && $selected_election && $position['election_id'] != $selected_election) { echo ' style="display:none;"'; } ?>
                                 >
                             <?php echo htmlspecialchars($position['title']); ?>
                              (<?php echo htmlspecialchars($position['election_title'] ?? 'N/A'); ?>)
                         </option>
                     <?php endforeach; ?>
+                     <?php if (empty($positions_for_filter)): ?> <option disabled>No positions found</option> <?php endif; ?>
                 </select>
-            </div>
-            <div class="col-md-auto ms-md-auto"> 
-                 <button type="button" class="btn btn-sm btn-outline-danger" id="deleteSelectedBtn" style="display: none;">
-                      <i class="bi bi-trash-fill me-1"></i> Delete Selected
-                 </button>
             </div>
         </div>
     </div>
 
-    <div class="card candidates-card border-0 shadow mb-4">
-        <div class="card-header bg-white py-3">
-            <h6 class="mb-0 text-primary font-weight-bold"><i class="bi bi-person-lines-fill me-2"></i>Candidates List</h6>
+    <div class="card candidates-card">
+        <div class="card-header">
+             <i class="bi bi-person-lines-fill me-2"></i>Candidates List
         </div>
         <div class="card-body p-0">
-             <form id="candidatesTableForm"> 
+             <form id="candidatesTableForm" method="POST" action="candidates.php">
+                <input type="hidden" name="action" value="delete_bulk">
                 <div class="table-responsive">
                     <table class="table table-hover align-middle candidates-table">
-                        <thead>
+                        <thead class="table-light">
                             <tr>
                                 <th scope="col" class="text-center" style="width: 1%;">
                                     <input class="form-check-input" type="checkbox" id="selectAllCheckbox" title="Select All">
                                 </th>
                                 <th scope="col" style="width: 1%;">Photo</th>
-                                <th scope="col">Name</th>
+                                <th scope="col">Name & Description</th>
                                 <th scope="col">Position</th>
                                 <th scope="col">Election</th>
                                 <th scope="col" class="text-center">Actions</th>
@@ -414,8 +403,8 @@ require_once "includes/header.php";
                             <?php if (empty($candidates)): ?>
                                 <tr class="no-candidates">
                                     <td colspan="6">
-                                        <i class="bi bi-person-x"></i>
-                                        <p class="mb-0 text-muted">
+                                        <i class="bi bi-person-x-fill"></i>
+                                        <p class="mb-0">
                                              <?php echo ($selected_election !== 'all' || $selected_position !== 'all') ? 'No candidates match the current filter.' : 'No candidates added yet.'; ?>
                                         </p>
                                     </td>
@@ -428,17 +417,24 @@ require_once "includes/header.php";
                                         </td>
                                         <td>
                                              <?php
-                                                 $photo_path = 'assets/images/default-avatar.png';
+                                                 // Determine photo path relative to *this* file (admin/candidates.php)
+                                                 $default_avatar = 'assets/images/default-avatar.png'; // Default relative to assets folder
+                                                 $photo_display_path = $default_avatar;
                                                  if (!empty($candidate['photo'])) {
-                                                     $relative_path = "../" . ltrim($candidate['photo'], '/');
-                                                     if (strpos($relative_path, '../uploads/candidates/') === 0 && file_exists($relative_path)) { $photo_path = htmlspecialchars($relative_path); }
+                                                      // Path stored in DB is relative to project root (e.g., 'uploads/candidates/...')
+                                                      $potential_path_from_root = "../" . ltrim($candidate['photo'], '/');
+                                                     if (file_exists($potential_path_from_root)) {
+                                                         $photo_display_path = htmlspecialchars($potential_path_from_root);
+                                                     } else {
+                                                         // error_log("Candidate photo file not found at expected path: " . $potential_path_from_root);
+                                                     }
                                                  }
                                              ?>
-                                            <img src="<?php echo $photo_path; ?>" class="candidate-photo" alt="" onerror="this.src='assets/images/default-avatar.png'; this.onerror=null;">
+                                            <img src="<?php echo $photo_display_path; ?>" class="candidate-photo" alt="<?php echo htmlspecialchars($candidate['name']); ?>">
                                     </td>
                                         <td>
                                             <span class="candidate-name"><?php echo htmlspecialchars($candidate['name']); ?></span>
-                                            <small class="position-details d-block text-muted"><?php echo htmlspecialchars($candidate['description'] ?? ''); ?></small>
+                                            <small class="position-details" title="<?php echo htmlspecialchars($candidate['description'] ?? ''); ?>"><?php echo htmlspecialchars($candidate['description'] ?? ''); ?></small>
                                         </td>
                                         <td>
                                             <a href="?position_id=<?php echo $candidate['position_id']; ?>&election_id=<?php echo $candidate['election_id']; ?>" class="link-secondary text-decoration-none">
@@ -474,7 +470,7 @@ require_once "includes/header.php";
                      <small class="text-muted me-3"><span id="selectedCount">0</span> selected</small>
                      <button type="button" class="btn btn-sm btn-danger" id="deleteSelectedBtnBulk" disabled>
                           <i class="bi bi-trash-fill me-1"></i> Delete Selected
-                </button>
+                     </button>
                  </div>
                  <?php endif; ?>
             </form>
@@ -489,47 +485,47 @@ require_once "includes/header.php";
                 <h5 class="modal-title" id="newCandidateModalLabel"><i class="bi bi-person-plus-fill me-2"></i>Add New Candidate</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            
-            <form id="addCandidateForm" method="POST" action="candidates.php" enctype="multipart/form-data" novalidate>
+            <form id="addCandidateForm" method="POST" enctype="multipart/form-data" novalidate>
                 <div class="modal-body p-4">
                     <div id="addModalAlertPlaceholder"></div>
-                    <input type="hidden" name="action" value="create"> 
-                    <div class="row">
+                    <input type="hidden" name="action" value="create">
+                    <div class="row g-3">
                          <div class="col-md-8">
-                    <div class="mb-3">
+                            <div class="mb-3">
                                 <label for="add_name" class="form-label">Candidate Name*</label>
                                 <input type="text" class="form-control" id="add_name" name="name" required>
                                 <div class="invalid-feedback">Please enter the candidate's name.</div>
-                    </div>
-                    <div class="mb-3">
+                            </div>
+                            <div class="mb-3">
                                 <label for="add_position_id" class="form-label">Position*</label>
                                 <select class="form-select" id="add_position_id" name="position_id" required <?php echo empty($positions_for_filter) ? 'disabled' : ''; ?>>
                                     <option value="" selected disabled>-- Select Position --</option>
                                     <?php foreach ($positions_for_filter as $position): ?>
-                                <option value="<?php echo $position['id']; ?>" 
-                                            <?php // Pre-select if filtered
-                                                echo ($selected_position !== 'all' && $selected_position == $position['id']) ? 'selected' : '';
-                                            ?>
-                                        >
+                                        <option value="<?php echo $position['id']; ?>"
+                                                <?php // Pre-select if a specific position was filtered on the main page
+                                                     echo ($selected_position !== 'all' && $selected_position == $position['id']) ? 'selected' : '';
+                                                ?>
+                                                >
                                             <?php echo htmlspecialchars($position['title'] . ' (' . ($position['election_title'] ?? 'N/A') . ')'); ?>
-                                </option>
-                            <?php endforeach; ?>
+                                        </option>
+                                    <?php endforeach; ?>
                                      <?php if(empty($positions_for_filter)): ?>
                                          <option value="" disabled>No positions found. Add positions first.</option>
                                      <?php endif; ?>
-                        </select>
+                                </select>
                                  <div class="invalid-feedback">Please select a position.</div>
-                    </div>
-                    <div class="mb-3">
-                                <label for="add_description" class="form-label">Short Description/Slogan (Optional)</label>
+                            </div>
+                            <div class="mb-3">
+                                <label for="add_description" class="form-label">Short Description/Slogan <span class="text-muted small">(Optional)</span></label>
                                 <textarea class="form-control" id="add_description" name="description" rows="2"></textarea>
-                    </div>
+                            </div>
                         </div>
                          <div class="col-md-4 text-center">
-                            <label for="add_photo" class="form-label">Photo</label>
-                             <img id="add_photoPreview" src="assets/images/default-avatar.png" alt="Photo Preview" class="img-thumbnail mb-2" style="height: 150px; width: 150px; object-fit: cover;">
+                            <label for="add_photo" class="form-label">Photo <span class="text-muted small">(Optional)</span></label>
+                             <img id="add_photoPreview" src="assets/images/default-avatar.png" alt="Photo Preview" class="img-thumbnail mb-2">
                             <input type="file" class="form-control form-control-sm" id="add_photo" name="photo" accept="image/jpeg, image/png, image/gif, image/webp">
                             <small class="form-text text-muted d-block mt-1">Max 5MB. JPG, PNG, GIF, WEBP.</small>
+                            <div class="invalid-feedback" id="add_photo_feedback"></div>
                         </div>
                     </div>
                 </div>
@@ -552,45 +548,48 @@ require_once "includes/header.php";
                 <h5 class="modal-title" id="editCandidateModalLabel"><i class="bi bi-pencil-square me-2"></i>Edit Candidate</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            
-            <form id="editCandidateForm" method="POST" action="edit_candidate.php" enctype="multipart/form-data" novalidate>
-                    <input type="hidden" id="edit_candidate_id" name="candidate_id">
+            <form id="editCandidateForm" method="POST" enctype="multipart/form-data" novalidate>
+                <input type="hidden" id="edit_candidate_id" name="candidate_id">
                 <div class="modal-body p-4">
                      <div id="editModalAlertPlaceholder"></div>
-                    <div class="row">
+                    <div class="row g-3">
                          <div class="col-md-8">
-                    <div class="mb-3">
+                            <div class="mb-3">
                                 <label for="edit_name" class="form-label">Candidate Name*</label>
-                        <input type="text" class="form-control" id="edit_name" name="name" required>
+                                <input type="text" class="form-control" id="edit_name" name="name" required>
                                 <div class="invalid-feedback">Name is required.</div>
-                    </div>
-                    <div class="mb-3">
+                            </div>
+                            <div class="mb-3">
                                 <label for="edit_position_id" class="form-label">Position*</label>
                                 <select class="form-select" id="edit_position_id" name="position_id" required <?php echo empty($positions_for_filter) ? 'disabled' : ''; ?>>
                                     <option value="">-- Select Position --</option>
                                     <?php foreach ($positions_for_filter as $position): ?>
-                                <option value="<?php echo $position['id']; ?>">
+                                        <option value="<?php echo $position['id']; ?>">
                                             <?php echo htmlspecialchars($position['title'] . ' (' . ($position['election_title'] ?? 'N/A') . ')'); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
+                                        </option>
+                                    <?php endforeach; ?>
+                                     <?php if(empty($positions_for_filter)): ?>
+                                         <option value="" disabled>No positions found</option>
+                                     <?php endif; ?>
+                                </select>
                                 <div class="invalid-feedback">Please select a position.</div>
-                    </div>
-                    <div class="mb-3">
-                                <label for="edit_description" class="form-label">Description (Optional)</label>
+                            </div>
+                            <div class="mb-3">
+                                <label for="edit_description" class="form-label">Description <span class="text-muted small">(Optional)</span></label>
                                 <textarea class="form-control" id="edit_description" name="description" rows="3"></textarea>
-                    </div>
+                            </div>
                         </div>
                         <div class="col-md-4 text-center">
                              <label class="form-label d-block">Current Photo</label>
-                             <img id="edit_photoPreview" src="assets/images/default-avatar.png" alt="Current Photo" class="img-thumbnail mb-2" style="height: 150px; width: 150px; object-fit: cover;">
-                             <label for="edit_photo" class="form-label">Change Photo (Optional)</label>
+                             <img id="edit_photoPreview" src="assets/images/default-avatar.png" alt="Current Photo" class="img-thumbnail mb-2">
+                             <label for="edit_photo" class="form-label">Change Photo <span class="text-muted small">(Optional)</span></label>
                             <input type="file" class="form-control form-control-sm" id="edit_photo" name="photo" accept="image/jpeg, image/png, image/gif, image/webp">
                              <small class="form-text text-muted d-block mt-1">Leave empty to keep current photo.</small>
+                             <div class="invalid-feedback" id="edit_photo_feedback"></div>
                         </div>
                     </div>
-            </div>
-            <div class="modal-footer">
+                </div>
+                <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-primary" id="editCandidateSubmitBtn">
                         <span class="spinner-border spinner-border-sm d-none me-1" role="status" aria-hidden="true"></span>
@@ -604,17 +603,17 @@ require_once "includes/header.php";
 
 <div class="modal fade" id="deleteSingleConfirmModal" tabindex="-1" aria-labelledby="deleteSingleConfirmModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0 shadow-lg">
-            <div class="modal-header bg-danger text-white">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-danger text-white border-0">
                  <h5 class="modal-title" id="deleteSingleConfirmModalLabel"><i class="bi bi-exclamation-triangle-fill me-2"></i>Confirm Deletion</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body text-center py-4">
                 <p class="lead mb-2">Delete candidate "<strong id="candidateToDeleteName"></strong>"?</p>
-                <p class="text-danger"><small>This action cannot be undone.</small></p>
+                <p class="text-danger small"><i class="bi bi-exclamation-circle me-1"></i>This action cannot be undone.</p>
                 <input type="hidden" id="deleteCandidateIdSingle">
             </div>
-             <div class="modal-footer justify-content-center border-0">
+             <div class="modal-footer justify-content-center border-0 pt-0">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                  <button type="button" class="btn btn-danger px-4" id="confirmDeleteSingleBtn">
                       <span class="spinner-border spinner-border-sm d-none me-1" role="status" aria-hidden="true"></span>
@@ -627,16 +626,16 @@ require_once "includes/header.php";
 
 <div class="modal fade" id="deleteBulkConfirmModal" tabindex="-1" aria-labelledby="deleteBulkConfirmModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0 shadow-lg">
-            <div class="modal-header bg-danger text-white">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-danger text-white border-0">
                  <h5 class="modal-title" id="deleteBulkConfirmModalLabel"><i class="bi bi-exclamation-triangle-fill me-2"></i>Confirm Bulk Deletion</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body text-center py-4">
                 <p class="lead mb-2">Are you sure you want to delete the <strong id="bulkDeleteCount">0</strong> selected candidate(s)?</p>
-                <p class="text-danger"><small>This action cannot be undone.</small></p>
+                <p class="text-danger small"><i class="bi bi-exclamation-circle me-1"></i>This action cannot be undone.</p>
             </div>
-             <div class="modal-footer justify-content-center border-0">
+             <div class="modal-footer justify-content-center border-0 pt-0">
                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                  <button type="button" class="btn btn-danger px-4" id="confirmDeleteBulkBtn">
                       <span class="spinner-border spinner-border-sm d-none me-1" role="status" aria-hidden="true"></span>
@@ -647,9 +646,8 @@ require_once "includes/header.php";
     </div>
 </div>
 
-
-<div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1090">
-    <div id="notificationToast" class="toast align-items-center border-0" role="alert" aria-live="assertive" aria-atomic="true" data-bs-delay="3500"> {/* Increased delay */}
+<div class="toast-container position-fixed top-0 end-0 p-3">
+    <div id="notificationToast" class="toast align-items-center border-0" role="alert" aria-live="assertive" aria-atomic="true" data-bs-delay="4000">
         <div class="d-flex notification-content">
             <div class="toast-body d-flex align-items-center">
                 <span class="notification-icon me-2 fs-4"></span>
@@ -661,30 +659,33 @@ require_once "includes/header.php";
 </div>
 
 
-<?php require_once "includes/footer.php"; ?>
+<?php require_once "includes/footer.php"; // Includes closing body/html, Bootstrap JS ?>
 
-<script nonce="<?php echo $nonce; ?>" src="https://unpkg.com/countup.js@2.8.0/dist/countUp.umd.js"></script>
-
-<script nonce="<?php echo $nonce; ?>">
+<script nonce="<?php echo htmlspecialchars($nonce, ENT_QUOTES, 'UTF-8'); ?>" src="https://unpkg.com/countup.js@2.8.0/dist/countUp.umd.js"></script>
+<script nonce="<?php echo htmlspecialchars($nonce, ENT_QUOTES, 'UTF-8'); ?>">
 document.addEventListener('DOMContentLoaded', function () {
     // --- Initialize Bootstrap Components ---
     const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
     tooltipTriggerList.map(function (el) { return new bootstrap.Tooltip(el) });
 
-    const newCandidateModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('newCandidateModal'));
-    const editCandidateModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('editCandidateModal'));
-    const deleteSingleModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('deleteSingleConfirmModal'));
-    const deleteBulkModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('deleteBulkConfirmModal'));
+    const newCandidateModalEl = document.getElementById('newCandidateModal');
+    const editCandidateModalEl = document.getElementById('editCandidateModal');
+    const deleteSingleModalEl = document.getElementById('deleteSingleConfirmModal');
+    const deleteBulkModalEl = document.getElementById('deleteBulkConfirmModal');
+    const newCandidateModal = newCandidateModalEl ? bootstrap.Modal.getOrCreateInstance(newCandidateModalEl) : null;
+    const editCandidateModal = editCandidateModalEl ? bootstrap.Modal.getOrCreateInstance(editCandidateModalEl) : null;
+    const deleteSingleModal = deleteSingleModalEl ? bootstrap.Modal.getOrCreateInstance(deleteSingleModalEl) : null;
+    const deleteBulkModal = deleteBulkModalEl ? bootstrap.Modal.getOrCreateInstance(deleteBulkModalEl) : null;
+
     const notificationToastEl = document.getElementById('notificationToast');
     const notificationToast = notificationToastEl ? bootstrap.Toast.getOrCreateInstance(notificationToastEl) : null;
 
     // --- DOM References ---
     const addForm = document.getElementById('addCandidateForm');
     const editForm = document.getElementById('editCandidateForm');
-    const tableForm = document.getElementById('candidatesTableForm');
+    const mainTableForm = document.getElementById('candidatesTableForm'); // Form wrapping the table
     const selectAllCheckbox = document.getElementById('selectAllCheckbox');
-    const candidateCheckboxes = document.querySelectorAll('.candidate-checkbox');
-    const deleteSelectedBtn = document.getElementById('deleteSelectedBtnBulk'); // Renamed button ID
+    const deleteSelectedBtnBulk = document.getElementById('deleteSelectedBtnBulk');
     const selectedCountSpan = document.getElementById('selectedCount');
     const electionFilter = document.getElementById('electionFilter');
     const positionFilter = document.getElementById('positionFilter');
@@ -694,9 +695,20 @@ document.addEventListener('DOMContentLoaded', function () {
     const addPhotoPreview = document.getElementById('add_photoPreview');
     const editPhotoInput = document.getElementById('edit_photo');
     const editPhotoPreview = document.getElementById('edit_photoPreview');
+    const addCandidateSubmitBtn = document.getElementById('addCandidateSubmitBtn');
+    const editCandidateSubmitBtn = document.getElementById('editCandidateSubmitBtn');
+    const deleteCandidateIdSingleInput = document.getElementById('deleteCandidateIdSingle');
+    const candidateToDeleteNameEl = document.getElementById('candidateToDeleteName');
+    const confirmDeleteSingleBtn = document.getElementById('confirmDeleteSingleBtn');
+    const confirmDeleteBulkBtn = document.getElementById('confirmDeleteBulkBtn');
+    const bulkDeleteCountEl = document.getElementById('bulkDeleteCount');
+    const defaultAvatarPath = 'assets/images/default-avatar.png'; // Define default path
+
+    // --- Utility: LTrim ---
+    function ltrim(str, chars) { chars = chars || "\\s"; return str.replace(new RegExp("^[" + chars + "]+", "g"), ""); }
 
 
-    // --- CountUp Animations ---
+    // --- DYNAMIC STATS DISPLAY (CountUp.js) ---
     if (typeof CountUp === 'function') {
         const countUpOptions = { duration: 2, enableScrollSpy: true, scrollSpyDelay: 50, scrollSpyOnce: true };
         try {
@@ -708,7 +720,13 @@ document.addEventListener('DOMContentLoaded', function () {
             if(elPosTotal) new CountUp(elPosTotal, statsData.total_positions || 0, countUpOptions).start();
             if(elVotesTotal) new CountUp(elVotesTotal, statsData.total_votes || 0, countUpOptions).start();
         } catch (e) { console.error("CountUp init error:", e); }
-    } else { console.warn("CountUp library not available."); }
+    } else {
+         console.warn("CountUp library not available. Displaying static stats.");
+         const statsData = <?php echo json_encode($stats); ?>;
+         document.getElementById('stat-total-candidates').textContent = statsData.total_candidates || 0;
+         document.getElementById('stat-total-positions').textContent = statsData.total_positions || 0;
+         document.getElementById('stat-total-votes').textContent = statsData.total_votes || 0;
+    }
 
 
     // --- Helper: Show Notification Toast ---
@@ -716,41 +734,49 @@ document.addEventListener('DOMContentLoaded', function () {
         const msgEl = document.getElementById('notificationMessage');
         const iconEl = notificationToastEl?.querySelector('.notification-icon');
         if (!notificationToast || !msgEl || !iconEl) return;
-        notificationToastEl.classList.remove('bg-success', 'bg-danger', 'bg-warning', 'bg-info', 'text-dark');
-        iconEl.innerHTML = ''; message = String(message || 'Action completed.').substring(0, 200); msgEl.textContent = message;
-        let iconClass = 'bi-check-circle-fill'; let bgClass = 'bg-success'; let textClass = '';
-        if (type === 'danger') { iconClass = 'bi-x-octagon-fill'; bgClass = 'bg-danger'; }
-        else if (type === 'warning') { iconClass = 'bi-exclamation-triangle-fill'; bgClass = 'bg-warning'; textClass = 'text-dark'; }
-        else if (type === 'info') { iconClass = 'bi-info-circle-fill'; bgClass = 'bg-info'; }
-        notificationToastEl.classList.add(bgClass, textClass); iconEl.innerHTML = `<i class="bi ${iconClass}"></i>`; notificationToast.show();
+        notificationToastEl.className = 'toast align-items-center border-0'; // Reset classes
+        iconEl.innerHTML = '';
+        message = String(message || 'Action completed.').substring(0, 200);
+        msgEl.textContent = message;
+        let iconClass = 'bi-check-circle-fill', bgClass = 'bg-success', textClass = 'text-white';
+        switch (type) {
+            case 'danger': iconClass = 'bi-x-octagon-fill'; bgClass = 'bg-danger'; break;
+            case 'warning': iconClass = 'bi-exclamation-triangle-fill'; bgClass = 'bg-warning'; textClass = 'text-dark'; break;
+            case 'info': iconClass = 'bi-info-circle-fill'; bgClass = 'bg-info'; break;
+        }
+        if (bgClass) notificationToastEl.classList.add(bgClass);
+        if (textClass) notificationToastEl.classList.add(textClass);
+        iconEl.innerHTML = `<i class="bi ${iconClass}"></i>`;
+        notificationToast.show();
     }
 
     // --- Helper: Show Modal Alert ---
      function showModalAlert(placeholder, message, type = 'danger') {
           if(placeholder) {
-               const alertClass = `alert-${type}`; const iconClass = type === 'danger' ? 'bi-exclamation-triangle-fill' : 'bi-check-circle-fill';
-               placeholder.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show d-flex align-items-center" role="alert" style="font-size: 0.9rem; padding: 0.75rem 1rem;"><i class="bi ${iconClass} me-2"></i><div>${message}</div><button type="button" class="btn-close" style="padding: 0.75rem;" data-bs-dismiss="alert" aria-label="Close"></button></div>`;
+               const icon = type === 'danger' ? 'bi-exclamation-triangle-fill' : 'bi-check-circle-fill';
+               placeholder.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show d-flex align-items-center small p-2 mb-3" role="alert"><i class="bi ${icon} me-2"></i><div>${message}</div><button type="button" class="btn-close p-2" data-bs-dismiss="alert" aria-label="Close"></button></div>`;
           }
      }
 
-     // --- Helper: Reset Button State ---
-     function resetButton(button, originalHTML) {
-         if(button) {
-             button.disabled = false;
-             button.innerHTML = originalHTML;
-         }
-     }
-     // --- Helper: Set Button Loading State ---
-      function setButtonLoading(button, loadingText = 'Processing...') {
-         if (button) {
+     // --- Helper: Set/Reset Button Loading State ---
+     function setButtonLoading(button, isLoading, loadingText = "Processing...") {
+         if (!button) return;
+         const originalHTML = button.dataset.originalHTML || button.innerHTML;
+         if (!button.dataset.originalHTML) button.dataset.originalHTML = originalHTML;
+         const spinner = button.querySelector('.spinner-border');
+         const icon = button.querySelector('.bi');
+         if (isLoading) {
              button.disabled = true;
-             const icon = button.querySelector('i');
-             const spinner = button.querySelector('.spinner-border');
-             if (icon) icon.classList.add('d-none'); // Hide icon
-             if (spinner) spinner.classList.remove('d-none'); // Show spinner
-             // Find text node to update, avoid replacing spinner/icon
-              const textNode = Array.from(button.childNodes).find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0);
-              if (textNode) textNode.textContent = ` ${loadingText}`;
+             if (!spinner) { const newSpinner = document.createElement('span'); newSpinner.className = 'spinner-border spinner-border-sm me-1'; newSpinner.setAttribute('role', 'status'); newSpinner.setAttribute('aria-hidden', 'true'); button.prepend(newSpinner); } else { spinner.classList.remove('d-none'); }
+             if (icon) icon.style.display = 'none';
+             const textNode = Array.from(button.childNodes).find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0); if (textNode) textNode.textContent = ` ${loadingText}`;
+         } else {
+             button.disabled = false;
+             if (spinner) spinner.classList.add('d-none');
+             if (icon) icon.style.display = '';
+             button.innerHTML = originalHTML; // Restore original
+             // Clear stored original HTML after restoring to allow future updates if needed
+             delete button.dataset.originalHTML;
          }
      }
 
@@ -768,91 +794,103 @@ document.addEventListener('DOMContentLoaded', function () {
     if(electionFilter) {
         electionFilter.addEventListener('change', function() {
             const selectedElection = this.value;
-            // Update position filter options based on selected election
             if (positionFilter) {
-                 let currentPositionVal = positionFilter.value; // Remember current selection
+                 let currentPositionVal = positionFilter.value;
                  let foundCurrent = false;
                  Array.from(positionFilter.options).forEach(option => {
-                     if (option.value === '') return; // Skip placeholder
+                     if (option.value === 'all') { option.style.display = ''; return; }
                      const electionMatch = selectedElection === 'all' || option.dataset.electionId == selectedElection;
                      option.style.display = electionMatch ? '' : 'none';
-                     if (electionMatch && option.value == currentPositionVal) {
-                         foundCurrent = true; // Current selection is still valid
-                     }
+                     if (electionMatch && option.value == currentPositionVal) foundCurrent = true;
                  });
-                 // If previous selection is no longer valid in the filtered list, reset to "All Positions"
-                 if (!foundCurrent) {
-                     positionFilter.value = 'all';
-                 }
+                 if (!foundCurrent) positionFilter.value = 'all'; // Reset position if not valid for new election
+                 positionFilter.disabled = (selectedElection === 'all' && <?php echo empty($positions_for_filter) ? 'true' : 'false'; ?>); // Simplified check
             }
-            applyFilters(); // Apply both filters together
+            applyFilters();
         });
     }
-    if(positionFilter) {
-        positionFilter.addEventListener('change', applyFilters);
-    }
+    if(positionFilter) positionFilter.addEventListener('change', applyFilters);
+    // Initial position filter setup based on selected election on page load
+     if (electionFilter && positionFilter) {
+         const initialElection = electionFilter.value;
+         Array.from(positionFilter.options).forEach(option => {
+              if (option.value === 'all') return;
+              option.style.display = (initialElection === 'all' || option.dataset.electionId == initialElection) ? '' : 'none';
+         });
+         positionFilter.disabled = (initialElection === 'all' && <?php echo empty($positions_for_filter) ? 'true' : 'false'; ?>);
+     }
 
 
     // --- Photo Preview Logic ---
-    function setupPhotoPreview(inputEl, previewEl) {
-        if(inputEl && previewEl) {
-            inputEl.addEventListener('change', function(event) {
-                const file = event.target.files[0];
-                if (file && file.type.startsWith('image/')) {
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        previewEl.src = e.target.result;
-                        previewEl.style.display = 'block';
-                    }
-                    reader.readAsDataURL(file);
-        } else {
-                     previewEl.src = 'assets/images/default-avatar.png'; // Reset or keep old? Resetting might be better.
-                     previewEl.style.display = 'block'; // Show default even if invalid file selected
+    function setupPhotoPreview(inputEl, previewEl, defaultSrc, feedbackEl) {
+        if (!inputEl || !previewEl) return;
+        inputEl.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (feedbackEl) feedbackEl.textContent = ''; // Clear feedback on change
+            inputEl.classList.remove('is-invalid');
+
+            if (file) {
+                if (file.size > 5 * 1024 * 1024) { // Size check
+                    previewEl.src = defaultSrc; inputEl.value = ''; inputEl.classList.add('is-invalid');
+                    if (feedbackEl) feedbackEl.textContent = 'File too large (Max 5MB).'; return;
                 }
-            });
-        }
+                if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) { // Type check
+                    previewEl.src = defaultSrc; inputEl.value = ''; inputEl.classList.add('is-invalid');
+                    if (feedbackEl) feedbackEl.textContent = 'Invalid file type (JPG, PNG, GIF, WEBP).'; return;
+                }
+                const reader = new FileReader(); reader.onload = (e) => { previewEl.src = e.target.result; }; reader.readAsDataURL(file);
+            } else {
+                 previewEl.src = defaultSrc; // Reset to default if no file selected
+            }
+        });
     }
-    setupPhotoPreview(addPhotoInput, add_photoPreview);
-    setupPhotoPreview(editPhotoInput, edit_photoPreview);
+    setupPhotoPreview(addPhotoInput, addPhotoPreview, defaultAvatarPath, document.getElementById('add_photo_feedback'));
+    setupPhotoPreview(editPhotoInput, editPhotoPreview, editPhotoPreview?.dataset.default || defaultAvatarPath, document.getElementById('edit_photo_feedback'));
+
 
     // --- Add Candidate Form Handling ---
-    const addCandidateSubmitBtn = document.getElementById('addCandidateSubmitBtn');
     if (addForm && addCandidateSubmitBtn) {
         addForm.addEventListener('submit', function(e) {
-    e.preventDefault();
+            e.preventDefault();
             addModalAlertPlaceholder.innerHTML = ''; addForm.classList.remove('was-validated');
             if (!addForm.checkValidity()) { e.stopPropagation(); addForm.classList.add('was-validated'); showModalAlert(addModalAlertPlaceholder, 'Please fill required fields.', 'warning'); return; }
 
-            const originalBtnHTML = addCandidateSubmitBtn.innerHTML;
-            setButtonLoading(addCandidateSubmitBtn, 'Adding...');
-            const formData = new FormData(addForm); // Automatically includes file
+            setButtonLoading(addCandidateSubmitBtn, true, 'Adding...');
+            const formData = new FormData(addForm);
 
-            fetch('candidates.php', { method: 'POST', body: formData, headers: {'Accept': 'application/json'}}) // POST to self, relies on action='create' check
-                .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-                        showNotification(data.message || 'Candidate added!', 'success');
-                        if(newCandidateModal) newCandidateModal.hide();
-                        setTimeout(() => window.location.reload(), 1500);
-                    } else { throw new Error(data.message || 'Failed to add candidate.'); }
+            fetch('add_candidate.php', { method: 'POST', body: formData, headers: {'Accept': 'application/json'}})
+                .then(async response => { // Use async to await json parsing
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.message || `HTTP error! status: ${response.status}`);
+                    return data;
                 })
-                .catch(error => { showModalAlert(addModalAlertPlaceholder, error.message || 'An error occurred.', 'danger'); })
-                .finally(() => { resetButton(addCandidateSubmitBtn, originalBtnHTML); });
+                .then(data => {
+                    showNotification(data.message || 'Candidate added!', 'success');
+                    if(newCandidateModal) newCandidateModal.hide();
+                    setTimeout(() => window.location.reload(), 1000);
+                })
+                .catch(error => { showModalAlert(addModalAlertPlaceholder, error.message, 'danger'); })
+                .finally(() => { setButtonLoading(addCandidateSubmitBtn, false); });
         });
     }
 
     // --- Edit Candidate Handling ---
-    const editCandidateSubmitBtn = document.getElementById('editCandidateSubmitBtn');
-    const editPositionIdSelect = document.getElementById('edit_position_id');
+    // 1. Populate Modal
     document.querySelectorAll('.edit-candidate-btn').forEach(button => {
         button.addEventListener('click', function() {
             const candidateId = this.getAttribute('data-candidate-id');
             if (!candidateId) return;
-            editModalAlertPlaceholder.innerHTML = ''; editForm?.classList.remove('was-validated');
+            editModalAlertPlaceholder.innerHTML = ''; editForm?.classList.remove('was-validated'); editForm.reset();
+            if (editPhotoInput) { editPhotoInput.value = ''; editPhotoInput.classList.remove('is-invalid'); } // Reset file input state
+            const editPhotoFeedback = document.getElementById('edit_photo_feedback'); if (editPhotoFeedback) editPhotoFeedback.textContent = '';
 
-            // Fetch existing data - **Requires get_candidate.php script**
+            setButtonLoading(editCandidateSubmitBtn, true, 'Loading...');
+
             fetch(`get_candidate.php?id=${candidateId}`, { headers: {'Accept': 'application/json'}})
-                .then(response => response.ok ? response.json() : Promise.reject(`Error ${response.status}`))
+                .then(response => {
+                     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+                     return response.json();
+                })
                 .then(data => {
                     if (data.success && data.candidate) {
                         const cand = data.candidate;
@@ -860,48 +898,48 @@ document.addEventListener('DOMContentLoaded', function () {
                         document.getElementById('edit_name').value = cand.name;
                         document.getElementById('edit_position_id').value = cand.position_id;
                         document.getElementById('edit_description').value = cand.description || '';
-                        // Update photo preview
                         const preview = document.getElementById('edit_photoPreview');
-                        if(preview) {
-                             preview.src = cand.photo_url || 'assets/images/default-avatar.png'; // Assuming backend provides full URL or default
-                             preview.style.display = 'block';
-                        }
+                        // Construct path relative to this script's dir (admin/) to reach project root uploads
+                        const photoPathFromRoot = cand.photo ? `../${ltrim(cand.photo, '/')}` : defaultAvatarPath;
+                        preview.src = photoPathFromRoot;
+                        preview.onerror = () => { preview.src = defaultAvatarPath; }; // Fallback
+                        preview.dataset.default = photoPathFromRoot; // Store for reset
+
                         if(editCandidateModal) editCandidateModal.show();
                     } else { throw new Error(data.message || 'Could not load candidate data.'); }
                 })
-                .catch(error => { console.error('Fetch Edit Error:', error); showNotification('Error loading candidate details.', 'danger'); });
+                .catch(error => { console.error('Fetch Edit Error:', error); showNotification('Error loading candidate details.', 'danger'); })
+                .finally(() => { setButtonLoading(editCandidateSubmitBtn, false); });
+        });
     });
-});
 
-    // Edit Form Submit - **Requires edit_candidate.php script**
+    // 2. Submit Edit Form
     if(editForm && editCandidateSubmitBtn) {
         editForm.addEventListener('submit', function(e) {
              e.preventDefault();
             editModalAlertPlaceholder.innerHTML = ''; editForm.classList.remove('was-validated');
              if (!editForm.checkValidity()) { e.stopPropagation(); editForm.classList.add('was-validated'); showModalAlert(editModalAlertPlaceholder, 'Please fill required fields.', 'warning'); return; }
 
-             const originalBtnHTML = editCandidateSubmitBtn.innerHTML;
-             setButtonLoading(editCandidateSubmitBtn, 'Saving...');
-             const formData = new FormData(editForm); // Includes file if selected
+             setButtonLoading(editCandidateSubmitBtn, true, 'Saving...');
+             const formData = new FormData(editForm);
 
              fetch('edit_candidate.php', { method: 'POST', body: formData, headers: {'Accept': 'application/json'}})
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                        showNotification(data.message || 'Candidate updated!', 'success');
-                        if(editCandidateModal) editCandidateModal.hide();
-                        setTimeout(() => window.location.reload(), 1500);
-                    } else { throw new Error(data.message || 'Failed to update candidate.'); }
+                .then(async response => {
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.message || `HTTP error! status: ${response.status}`);
+                    return data;
+                 })
+                .then(data => {
+                    showNotification(data.message || 'Candidate updated!', 'success');
+                    if(editCandidateModal) editCandidateModal.hide();
+                    setTimeout(() => window.location.reload(), 1000);
                 })
-                .catch(error => { showModalAlert(editModalAlertPlaceholder, error.message || 'An error occurred.', 'danger'); })
-                .finally(() => { resetButton(editCandidateSubmitBtn, originalBtnHTML); });
+                .catch(error => { showModalAlert(editModalAlertPlaceholder, error.message, 'danger'); })
+                .finally(() => { setButtonLoading(editCandidateSubmitBtn, false); });
         });
     }
 
      // --- Delete Candidate Handling (Single) ---
-     const deleteCandidateIdSingleInput = document.getElementById('deleteCandidateIdSingle');
-     const candidateToDeleteNameEl = document.getElementById('candidateToDeleteName');
-     const confirmDeleteSingleBtn = document.getElementById('confirmDeleteSingleBtn');
      document.querySelectorAll('.delete-candidate-btn').forEach(button => {
          button.addEventListener('click', function() {
              const candidateId = this.getAttribute('data-candidate-id');
@@ -917,103 +955,94 @@ document.addEventListener('DOMContentLoaded', function () {
              const candidateId = deleteCandidateIdSingleInput ? deleteCandidateIdSingleInput.value : null;
              if (!candidateId) return;
 
-             const originalBtnText = this.innerHTML;
-             setButtonLoading(this, 'Deleting...');
+             setButtonLoading(this, true, 'Deleting...');
+             const formData = new FormData();
+             formData.append('candidate_id', candidateId); // Parameter name expected by delete_candidate.php
 
-             // **Requires delete_candidate.php script**
-             fetch(`delete_candidate.php?id=${candidateId}`, { headers: {'Accept': 'application/json'}})
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-                        showNotification(data.message || 'Candidate deleted!', 'success');
-                        if(deleteSingleModal) deleteSingleModal.hide();
-                         const rowToRemove = document.getElementById(`candidate-row-${candidateId}`);
-                         if(rowToRemove) { rowToRemove.style.opacity = '0'; setTimeout(() => rowToRemove.remove(), 300); }
-                         else { setTimeout(() => window.location.reload(), 1200); } // Fallback reload
-                         updateSelectedCount(); // Update count display
-                    } else { throw new Error(data.message || 'Failed to delete candidate.'); }
-                })
-                .catch(error => { showNotification(error.message || 'Error deleting candidate.', 'danger'); if(deleteSingleModal) deleteSingleModal.hide(); })
-                .finally(() => { resetButton(confirmDeleteSingleBtn, originalBtnText); }); // Reset button
+             fetch('delete_candidate.php', { method: 'POST', body: formData, headers: {'Accept': 'application/json'}})
+                 .then(async response => {
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.message || `HTTP error! status: ${response.status}`);
+                    return data;
+                 })
+                 .then(data => {
+                    showNotification(data.message || 'Candidate deleted!', 'success');
+                    if(deleteSingleModal) deleteSingleModal.hide();
+                    const rowToRemove = document.getElementById(`candidate-row-${candidateId}`);
+                    if(rowToRemove) { rowToRemove.style.transition = 'opacity 0.3s ease-out'; rowToRemove.style.opacity = '0'; setTimeout(() => { rowToRemove.remove(); updateSelectAllState(); updateSelectedCount(); }, 300); }
+                    else { setTimeout(() => window.location.reload(), 500); }
+                 })
+                 .catch(error => { showNotification(error.message, 'danger'); if(deleteSingleModal) deleteSingleModal.hide(); })
+                 .finally(() => { setButtonLoading(this, false); });
          });
      }
 
      // --- Bulk Delete Handling ---
-     const deleteBulkConfirmModalEl = document.getElementById('deleteBulkConfirmModal');
-     const confirmDeleteBulkBtn = document.getElementById('confirmDeleteBulkBtn');
-     const bulkDeleteCountEl = document.getElementById('bulkDeleteCount');
-
      function updateSelectedCount() {
          const selectedCheckboxes = document.querySelectorAll('.candidate-checkbox:checked');
          const count = selectedCheckboxes.length;
          if(selectedCountSpan) selectedCountSpan.textContent = count;
-         if(deleteSelectedBtn) deleteSelectedBtn.style.display = count > 0 ? 'inline-block' : 'none'; // Show/hide bulk delete button
-         if(confirmDeleteBulkBtn) confirmDeleteBulkBtn.disabled = count === 0; // Enable/disable modal confirm button
+         if(deleteSelectedBtnBulk) deleteSelectedBtnBulk.disabled = count === 0;
          if(bulkDeleteCountEl) bulkDeleteCountEl.textContent = count;
-         // Update select all checkbox state
-         if(selectAllCheckbox) selectAllCheckbox.checked = count > 0 && count === candidateCheckboxes.length;
      }
+
+     function updateSelectAllState() {
+        const totalCheckboxes = document.querySelectorAll('.candidate-checkbox').length;
+        const checkedCount = document.querySelectorAll('.candidate-checkbox:checked').length;
+        if (selectAllCheckbox) {
+             if(totalCheckboxes === 0) { selectAllCheckbox.checked = false; selectAllCheckbox.indeterminate = false; selectAllCheckbox.disabled = true; }
+             else { selectAllCheckbox.disabled = false; selectAllCheckbox.checked = checkedCount === totalCheckboxes; selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < totalCheckboxes; }
+        }
+    }
 
      if(selectAllCheckbox) {
          selectAllCheckbox.addEventListener('change', function() {
-             candidateCheckboxes.forEach(checkbox => checkbox.checked = this.checked);
+             document.querySelectorAll('.candidate-checkbox').forEach(checkbox => checkbox.checked = this.checked);
              updateSelectedCount();
          });
      }
-
-     candidateCheckboxes.forEach(checkbox => {
-         checkbox.addEventListener('change', updateSelectedCount);
+     document.querySelectorAll('.candidate-checkbox').forEach(checkbox => {
+         checkbox.addEventListener('change', () => { updateSelectedCount(); updateSelectAllState(); });
      });
 
-     // Trigger bulk delete modal
-     if(deleteSelectedBtn) {
-         deleteSelectedBtn.addEventListener('click', function() {
+     if(deleteSelectedBtnBulk) {
+         deleteSelectedBtnBulk.addEventListener('click', function() {
              if (document.querySelectorAll('.candidate-checkbox:checked').length > 0) {
                  if(deleteBulkModal) deleteBulkModal.show();
-             } else {
-                 showNotification("Please select at least one candidate to delete.", "warning");
-             }
+             } else { showNotification("Please select at least one candidate to delete.", "warning"); }
          });
      }
 
-     // Confirm bulk delete
      if(confirmDeleteBulkBtn) {
          confirmDeleteBulkBtn.addEventListener('click', function() {
-             const selectedCheckboxes = document.querySelectorAll('.candidate-checkbox:checked');
-             const selectedIds = Array.from(selectedCheckboxes).map(cb => cb.value);
-             if (selectedIds.length === 0) return;
+             if (!mainTableForm) { console.error("Could not find form #candidatesTableForm"); return; }
+             const selectedCheckboxes = mainTableForm.querySelectorAll('.candidate-checkbox:checked');
+             if (selectedCheckboxes.length === 0) return;
 
-             const originalBtnText = this.innerHTML;
-             setButtonLoading(this, 'Deleting...');
+             setButtonLoading(this, true, 'Deleting...');
+             const formData = new FormData(mainTableForm); // Submit the main form which contains checkboxes
 
-             const formData = new FormData();
-             formData.append('action', 'delete_bulk');
-             selectedIds.forEach(id => formData.append('selected_ids[]', id));
-
-             // POST to self (candidates.php) to handle bulk delete action
-             fetch('candidates.php', { method: 'POST', body: formData, headers: {'Accept': 'application/json'} })
-                 .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-                         showNotification(data.message || 'Selected candidates deleted!', 'success');
-                         if(deleteBulkModal) deleteBulkModal.hide();
-                         // Remove rows visually
-                         selectedIds.forEach(id => {
-                              const row = document.getElementById(`candidate-row-${id}`);
-                              if(row) { row.style.opacity = '0'; setTimeout(() => row.remove(), 300); }
-                         });
-                         updateSelectedCount(); // Reset count and button state
-        } else {
-                          throw new Error(data.message || 'Failed to delete candidates.');
-        }
-    })
-    .catch(error => {
-                      showNotification(error.message || 'Error during bulk delete.', 'danger');
-                      if(deleteBulkModal) deleteBulkModal.hide();
+             fetch('candidates.php', { method: 'POST', body: formData, headers: {'Accept': 'application/json'} }) // POST to self (where bulk delete logic is)
+                 .then(async response => {
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.message || `HTTP error! status: ${response.status}`);
+                    return data;
                  })
-                 .finally(() => { resetButton(confirmDeleteBulkBtn, originalBtnText); });
+                 .then(data => {
+                    showNotification(data.message || 'Selected candidates deleted!', 'success');
+                    if(deleteBulkModal) deleteBulkModal.hide();
+                    const selectedIds = Array.from(selectedCheckboxes).map(cb => cb.value);
+                    selectedIds.forEach(id => { const row = document.getElementById(`candidate-row-${id}`); if(row) { row.style.transition = 'opacity 0.3s ease-out'; row.style.opacity = '0'; setTimeout(() => row.remove(), 300); } });
+                    // Update counts/states after rows are removed
+                    setTimeout(() => { updateSelectedCount(); updateSelectAllState(); }, 350);
+                 })
+                 .catch(error => { showNotification(error.message, 'danger'); if(deleteBulkModal) deleteBulkModal.hide(); })
+                 .finally(() => { setButtonLoading(this, false); });
          });
      }
+     updateSelectedCount(); // Initial count
+     updateSelectAllState(); // Initial select all state
+
 
     // --- Reset Modals on Close ---
      [newCandidateModalEl, editCandidateModalEl, deleteSingleModalEl, deleteBulkModalEl].forEach(modalEl => {
@@ -1021,20 +1050,24 @@ document.addEventListener('DOMContentLoaded', function () {
             modalEl.addEventListener('hidden.bs.modal', function () {
                 const form = this.querySelector('form');
                 if (form) { form.classList.remove('was-validated'); form.reset(); }
-                 const alertPlaceholder = this.querySelector('#addModalAlertPlaceholder') || this.querySelector('#editModalAlertPlaceholder');
-                 if (alertPlaceholder) alertPlaceholder.innerHTML = '';
-                 // Reset specific buttons
-                 const addBtn = this.querySelector('#addCandidateSubmitBtn'); if(addBtn) resetButton(addBtn, '<i class="bi bi-plus-lg"></i> Add Candidate');
-                 const editBtn = this.querySelector('#editCandidateSubmitBtn'); if(editBtn) resetButton(editBtn, '<i class="bi bi-save-fill me-1"></i>Save Changes');
-                 const confirmSingleBtn = this.querySelector('#confirmDeleteSingleBtn'); if(confirmSingleBtn) resetButton(confirmSingleBtn, '<i class="bi bi-trash3-fill me-1"></i>Delete');
-                 const confirmBulkBtn = this.querySelector('#confirmDeleteBulkBtn'); if(confirmBulkBtn) resetButton(confirmBulkBtn, '<i class="bi bi-trash3-fill me-1"></i>Delete Selected');
-                 // Reset image previews
-                 [add_photoPreview, edit_photoPreview].forEach(preview => { if(preview) preview.src = 'assets/images/default-avatar.png'; });
+                const alertPlaceholder = this.querySelector('#addModalAlertPlaceholder, #editModalAlertPlaceholder');
+                if (alertPlaceholder) alertPlaceholder.innerHTML = '';
+                // Reset image previews
+                if(addPhotoPreview) addPhotoPreview.src = defaultAvatarPath;
+                if(editPhotoPreview) editPhotoPreview.src = editPhotoPreview.dataset.default || defaultAvatarPath;
+                 // Reset file input visual state
+                 modalEl.querySelectorAll('input[type="file"]').forEach(input => { input.value = ''; input.classList.remove('is-invalid'); });
+                 modalEl.querySelectorAll('.invalid-feedback').forEach(el => el.textContent = ''); // Clear feedback text
+
+                 setButtonLoading(document.getElementById('addCandidateSubmitBtn'), false);
+                 setButtonLoading(document.getElementById('editCandidateSubmitBtn'), false);
+                 setButtonLoading(document.getElementById('confirmDeleteSingleBtn'), false);
+                 setButtonLoading(document.getElementById('confirmDeleteBulkBtn'), false);
             });
         }
     });
 
-    // --- Sidebar Toggle Logic ---
+    // Sidebar Toggle Logic (ensure it's loaded, maybe move to common.js)
     const sidebarToggle = document.getElementById('sidebarToggle');
     const sidebar = document.getElementById('sidebar');
     const mainContent = document.getElementById('mainContent');

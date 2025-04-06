@@ -42,11 +42,70 @@ $current_page = basename($_SERVER['PHP_SELF']);
             --font-family-primary: "Poppins", sans-serif; --font-family-secondary: "Nunito", sans-serif;
             --shadow-sm: 0 .125rem .25rem rgba(0,0,0,.075); --shadow: 0 .15rem 1.75rem 0 rgba(58,59,69,.15); --border-radius: .35rem; --border-radius-lg: .5rem;
         }
-        body { font-family: var(--font-family-secondary); padding-top: var(--navbar-height); background-color: var(--light-color); }
+        body { 
+            font-family: var(--font-family-secondary); 
+            padding-top: var(--navbar-height); 
+            background-color: var(--light-color);
+            min-height: 100vh;
+            position: relative;
+        }
+
+        /* Responsive breakpoints */
+        @media (max-width: 991.98px) {
+            :root {
+                --sidebar-width: 100%;
+                --navbar-height: 64px;
+            }
+            body { padding-top: var(--navbar-height); }
+            .main-content { margin-left: 0 !important; width: 100% !important; }
+            .navbar { left: 0 !important; width: 100% !important; }
+            .sidebar { transform: translateX(-100%); transition: transform 0.3s ease-in-out; }
+            .sidebar.show { transform: translateX(0); }
+            .sidebar-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.5);
+                z-index: 1029;
+                display: none;
+            }
+            .sidebar-overlay.show { display: block; }
+        }
+
+        @media (max-width: 767.98px) {
+            .container-fluid { padding: 1rem !important; }
+            .page-header { flex-direction: column !important; gap: 1rem; }
+            .page-header .btn { width: 100%; }
+            .stats-card { margin-bottom: 1rem; }
+            .table-responsive { margin: 0 -1rem; }
+            .modal-body { padding: 1rem !important; }
+        }
 
         /* Sidebar */
-        .sidebar { width: var(--sidebar-width); height: 100vh; position: fixed; top: 0; left: 0; z-index: 1030; background-color: var(--sidebar-bg); color: var(--sidebar-link-color); transition: width 0.25s ease-in-out; overflow-x: hidden; display: flex; flex-direction: column; }
-        .sidebar-header { padding: 0.875rem 1.25rem; display: flex; align-items: center; white-space: nowrap; border-bottom: 1px solid rgba(255,255,255,.1); }
+        .sidebar { 
+            width: var(--sidebar-width); 
+            height: 100vh; 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            z-index: 1030; 
+            background-color: var(--sidebar-bg); 
+            color: var(--sidebar-link-color); 
+            transition: transform 0.3s ease-in-out, width 0.25s ease-in-out; 
+            overflow-x: hidden; 
+            display: flex; 
+            flex-direction: column;
+        }
+        .sidebar-header { 
+            padding: 0.875rem 1.25rem; 
+            display: flex; 
+            align-items: center; 
+            white-space: nowrap; 
+            border-bottom: 1px solid rgba(255,255,255,.1);
+            min-height: var(--navbar-height);
+        }
         .sidebar-logo { font-size: 1.5rem; font-weight: 700; color: var(--white-color); margin-right: 0.5rem; }
         .sidebar-title { font-family: var(--font-family-primary); font-size: 1.1rem; font-weight: 600; color: var(--white-color); opacity: 1; transition: opacity 0.2s ease-out; }
         .sidebar-nav { padding: 1rem 0; flex-grow: 1; overflow-y: auto; }
@@ -55,20 +114,45 @@ $current_page = basename($_SERVER['PHP_SELF']);
         .sidebar .nav-link span { opacity: 1; transition: opacity 0.2s ease-out; font-size: 0.9rem; font-weight: 600; }
         .sidebar .nav-link:hover { color: var(--white-color); background-color: var(--sidebar-link-hover-bg); }
         .sidebar .nav-link.active { color: var(--white-color); background-color: var(--sidebar-link-active-bg); font-weight: 700; }
-        .sidebar .nav-link.logout { color: #ffc107; } .sidebar .nav-link.logout:hover { background-color: rgba(255, 193, 7, 0.1); }
+        .sidebar .nav-link.logout { color: var(--danger-color); } .sidebar .nav-link.logout:hover { background-color: rgba(231, 74, 59, 0.1); }
         /* Collapsed Sidebar */
         .sidebar.collapsed { width: var(--sidebar-width-collapsed); } .sidebar.collapsed .sidebar-header { justify-content: center; } .sidebar.collapsed .sidebar-title { opacity: 0; width: 0; overflow: hidden; }
         .sidebar.collapsed .nav-link { justify-content: center; padding: 0.75rem; } .sidebar.collapsed .nav-link i { margin-right: 0; } .sidebar.collapsed .nav-link span { opacity: 0; width: 0; overflow: hidden; }
 
         /* Main Content Area */
-        .main-content { transition: margin-left 0.25s ease-in-out, width 0.25s ease-in-out; margin-left: var(--sidebar-width); width: calc(100% - var(--sidebar-width)); padding: 0; }
+        .main-content { 
+            transition: margin-left 0.25s ease-in-out, width 0.25s ease-in-out; 
+            margin-left: var(--sidebar-width); 
+            width: calc(100% - var(--sidebar-width)); 
+            padding: 0;
+            min-height: calc(100vh - var(--navbar-height));
+        }
         .main-content.expanded { margin-left: var(--sidebar-width-collapsed); width: calc(100% - var(--sidebar-width-collapsed)); }
 
         /* Top Navbar */
-        .navbar { position: fixed; top: 0; right: 0; height: var(--navbar-height); left: var(--sidebar-width); z-index: 1020; transition: left 0.25s ease-in-out, width 0.25s ease-in-out; width: calc(100% - var(--sidebar-width)); box-shadow: var(--shadow-sm); padding: 0 1.5rem; }
-        .navbar.expanded { left: var(--sidebar-width-collapsed); width: calc(100% - var(--sidebar-width-collapsed)); }
-        .navbar .menu-btn { background: none; border: none; color: rgba(255,255,255,.8); font-size: 1.4rem; cursor: pointer; padding: .25rem .5rem; margin-right: .5rem; line-height: 1; }
-        .navbar .menu-btn:hover { color: var(--white-color); } .navbar .menu-btn:focus { box-shadow: none; }
+        .navbar { 
+            position: fixed; 
+            top: 0; 
+            right: 0; 
+            height: var(--navbar-height); 
+            left: var(--sidebar-width); 
+            z-index: 1020; 
+            transition: left 0.25s ease-in-out, width 0.25s ease-in-out; 
+            width: calc(100% - var(--sidebar-width)); 
+            box-shadow: var(--shadow-sm); 
+            padding: 0 1rem;
+        }
+        .navbar-brand {
+            font-size: 1.1rem;
+            font-weight: 600;
+            font-family: var(--font-family-primary);
+        }
+        @media (max-width: 575.98px) {
+            .navbar { padding: 0 0.5rem; }
+            .navbar-brand { font-size: 1rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+            .user-avatar-icon { margin-left: 0.25rem; }
+            .dropdown-menu { position: fixed !important; top: var(--navbar-height) !important; left: 0 !important; right: 0 !important; width: 100%; margin: 0 !important; border-radius: 0 !important; }
+        }
 
         /* User Dropdown */
         .navbar .dropdown-toggle::after { display: none; }
@@ -101,7 +185,57 @@ $current_page = basename($_SERVER['PHP_SELF']);
         .password-toggle-btn-modal:hover { color: var(--primary-color); }
         .password-input-group .form-control { padding-right: 2.8rem; } /* Space for button */
 
+        .navbar .dropdown-item.text-danger { color: var(--danger-color) !important; } .navbar .dropdown-item.text-danger:hover { background-color: rgba(231, 74, 59, 0.1); } .navbar .dropdown-item.text-danger i { color: var(--danger-color) !important; }
 
+        /* Cards and Tables Responsive */
+        .card { margin-bottom: 1rem; }
+        .table-responsive { margin-bottom: 1rem; }
+        .table { margin-bottom: 0; }
+        @media (max-width: 767.98px) {
+            .table td, .table th { 
+                white-space: nowrap; 
+                padding: 0.5rem;
+                font-size: 0.9rem;
+            }
+            .action-buttons .btn { padding: 0.25rem 0.5rem; font-size: 0.8rem; }
+            .card-header { padding: 0.75rem 1rem; }
+            .card-body { padding: 1rem; }
+        }
+
+        /* Forms and Modals Responsive */
+        @media (max-width: 575.98px) {
+            .modal-body { padding: 1rem; }
+            .form-label { font-size: 0.8rem; }
+            .form-control { font-size: 0.9rem; }
+            .btn { font-size: 0.9rem; }
+            .modal-footer { padding: 0.75rem; }
+            .modal-header { padding: 0.75rem 1rem; }
+            .modal-title { font-size: 1.1rem; }
+        }
+
+        /* Stats Cards Responsive */
+        @media (max-width: 767.98px) {
+            .stats-card .stat-value { font-size: 1.5rem; }
+            .stats-card .stat-label { font-size: 0.65rem; }
+            .stats-card .stat-detail { font-size: 0.75rem; }
+            .stats-card-icon { font-size: 1.5rem; }
+        }
+
+        /* Filter Bar Responsive */
+        @media (max-width: 767.98px) {
+            .filter-bar { padding: 0.5rem; margin-bottom: 1rem; }
+            .filter-bar .form-select { max-width: 100%; }
+            .filter-bar .row { row-gap: 0.5rem; }
+        }
+
+        /* Utility Classes */
+        .text-truncate-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
     </style>
 </head>
 <body>
@@ -137,6 +271,8 @@ $current_page = basename($_SERVER['PHP_SELF']);
     </nav>
 
     <div class="d-flex">
+        <!-- Add overlay for mobile sidebar -->
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
         <div class="sidebar d-flex flex-column flex-shrink-0" id="sidebar">
              <div class="sidebar-header">
                 <span class="sidebar-logo"><i class="bi bi-clipboard-check-fill"></i></span> 
@@ -155,7 +291,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 </li>
                 <li class="nav-item">
                     <a class="nav-link <?php echo $current_page == 'positions.php' ? 'active' : ''; ?>" href="positions.php">
-                        <i class="bi bi-tag-fill"></i> <span>Positions</span>
+                        <i class="bi bi-tag-fill"></i> <span>Post</span>
                     </a>
                 </li>
                 <li class="nav-item">
@@ -257,6 +393,97 @@ $current_page = basename($_SERVER['PHP_SELF']);
 
 <script nonce="<?php echo $nonce; ?>">
 document.addEventListener('DOMContentLoaded', function() {
+    // Sidebar Toggle Functionality
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
+    const mainContent = document.getElementById('mainContent');
+    const navbar = document.querySelector('.navbar');
+    let isMobile = window.innerWidth < 992;
+
+    function toggleSidebar() {
+        if (isMobile) {
+            sidebar.classList.toggle('show');
+            sidebarOverlay.classList.toggle('show');
+            document.body.style.overflow = sidebar.classList.contains('show') ? 'hidden' : '';
+        } else {
+            const isCollapsed = sidebar.classList.contains('collapsed');
+            sidebar.classList.toggle('collapsed');
+            mainContent.classList.toggle('expanded');
+            navbar.classList.toggle('expanded');
+            try {
+                localStorage.setItem('sidebarState', isCollapsed ? 'expanded' : 'collapsed');
+            } catch (e) {}
+        }
+    }
+
+    // Handle window resize
+    window.addEventListener('resize', function() {
+        const wasNotMobile = !isMobile;
+        isMobile = window.innerWidth < 992;
+        
+        if (wasNotMobile && isMobile) {
+            // Switching to mobile view
+            sidebar.classList.remove('collapsed');
+            sidebar.classList.remove('show');
+            mainContent.classList.remove('expanded');
+            navbar.classList.remove('expanded');
+            sidebarOverlay.classList.remove('show');
+            document.body.style.overflow = '';
+        } else if (!isMobile && wasNotMobile) {
+            // Restore desktop state
+            try {
+                const storedState = localStorage.getItem('sidebarState');
+                if (storedState === 'collapsed') {
+                    sidebar.classList.add('collapsed');
+                    mainContent.classList.add('expanded');
+                    navbar.classList.add('expanded');
+                }
+            } catch (e) {}
+        }
+    });
+
+    // Toggle sidebar on button click
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', function(e) {
+            e.preventDefault();
+            toggleSidebar();
+        });
+    }
+
+    // Close sidebar when clicking overlay
+    if (sidebarOverlay) {
+        sidebarOverlay.addEventListener('click', function() {
+            sidebar.classList.remove('show');
+            sidebarOverlay.classList.remove('show');
+            document.body.style.overflow = '';
+        });
+    }
+
+    // Close sidebar when clicking a link on mobile
+    const sidebarLinks = sidebar.querySelectorAll('a');
+    sidebarLinks.forEach(link => {
+        link.addEventListener('click', function() {
+            if (isMobile && sidebar.classList.contains('show')) {
+                sidebar.classList.remove('show');
+                sidebarOverlay.classList.remove('show');
+                document.body.style.overflow = '';
+            }
+        });
+    });
+
+    // Initialize sidebar state on page load
+    if (!isMobile) {
+        try {
+            const storedState = localStorage.getItem('sidebarState');
+            if (storedState === 'collapsed') {
+                sidebar.classList.add('collapsed');
+                mainContent.classList.add('expanded');
+                navbar.classList.add('expanded');
+            }
+        } catch (e) {}
+    }
+
     // Profile Form Handling
     const profileForm = document.getElementById('profileForm');
     const saveProfileBtn = document.getElementById('saveProfileBtn');
