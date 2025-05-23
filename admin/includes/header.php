@@ -4,15 +4,21 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+// Generate CSP nonce if not already set
+if (empty($_SESSION['csp_nonce'])) {
+    $_SESSION['csp_nonce'] = base64_encode(random_bytes(16));
+}
+$nonce = htmlspecialchars($_SESSION['csp_nonce'], ENT_QUOTES, 'UTF-8');
+
+// Set Content Security Policy header
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-{$nonce}' 'unsafe-inline' 'unsafe-eval' chrome-extension://c0126e76-66c7-4d3a-af48-1d36aaba860b/ https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'nonce-{$nonce}' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:;");
+
 // Check if user is logged in - Essential security check
 if (!isset($_SESSION['admin_id'], $_SESSION['admin_username'])) {
     session_unset(); session_destroy();
     header("Location: login.php");
     exit();
 }
-
-// Generate CSP nonce if available in session
-$nonce = isset($_SESSION['csp_nonce']) ? htmlspecialchars($_SESSION['csp_nonce'], ENT_QUOTES, 'UTF-8') : '';
 
 // Get admin username for display
 $admin_username = htmlspecialchars($_SESSION['admin_username'], ENT_QUOTES, 'UTF-8');
@@ -53,13 +59,18 @@ $current_page = basename($_SERVER['PHP_SELF']);
         /* Responsive breakpoints */
         @media (max-width: 991.98px) {
             :root {
-                --sidebar-width: 100%;
+                --sidebar-width: 280px; /* Fixed width for mobile */
                 --navbar-height: 64px;
             }
             body { padding-top: var(--navbar-height); }
             .main-content { margin-left: 0 !important; width: 100% !important; }
             .navbar { left: 0 !important; width: 100% !important; }
-            .sidebar { transform: translateX(-100%); transition: transform 0.3s ease-in-out; }
+            .sidebar { 
+                transform: translateX(-100%); 
+                transition: transform 0.3s ease-in-out;
+                width: var(--sidebar-width);
+                box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+            }
             .sidebar.show { transform: translateX(0); }
             .sidebar-overlay {
                 position: fixed;
@@ -70,8 +81,23 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 background: rgba(0,0,0,0.5);
                 z-index: 1029;
                 display: none;
+                opacity: 0;
+                transition: opacity 0.3s ease-in-out;
             }
-            .sidebar-overlay.show { display: block; }
+            .sidebar-overlay.show { 
+                display: block;
+                opacity: 1;
+            }
+            /* Ensure sidebar content is scrollable */
+            .sidebar-nav {
+                max-height: calc(100vh - var(--navbar-height));
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            /* Prevent body scroll when sidebar is open */
+            body.sidebar-open {
+                overflow: hidden;
+            }
         }
 
         @media (max-width: 767.98px) {
@@ -93,7 +119,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
             z-index: 1030; 
             background-color: var(--sidebar-bg); 
             color: var(--sidebar-link-color); 
-            transition: transform 0.3s ease-in-out, width 0.25s ease-in-out; 
+            transition: all 0.25s ease-in-out; 
             overflow-x: hidden; 
             display: flex; 
             flex-direction: column;
@@ -121,7 +147,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
 
         /* Main Content Area */
         .main-content { 
-            transition: margin-left 0.25s ease-in-out, width 0.25s ease-in-out; 
+            transition: all 0.25s ease-in-out; 
             margin-left: var(--sidebar-width); 
             width: calc(100% - var(--sidebar-width)); 
             padding: 0;
@@ -137,10 +163,14 @@ $current_page = basename($_SERVER['PHP_SELF']);
             height: var(--navbar-height); 
             left: var(--sidebar-width); 
             z-index: 1020; 
-            transition: left 0.25s ease-in-out, width 0.25s ease-in-out; 
+            transition: all 0.25s ease-in-out; 
             width: calc(100% - var(--sidebar-width)); 
             box-shadow: var(--shadow-sm); 
             padding: 0 1rem;
+        }
+        .navbar.expanded {
+            left: var(--sidebar-width-collapsed);
+            width: calc(100% - var(--sidebar-width-collapsed));
         }
         .navbar-brand {
             font-size: 1.1rem;
@@ -244,7 +274,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
             <i class="bi bi-list fs-4"></i>
         </button>
 
-         <a class="navbar-brand d-none d-md-inline-block ms-3 me-auto" href="index.php">Admin Panel</a>
+        <a class="navbar-brand d-none d-md-inline-block ms-3 me-auto" href="index.php">Admin Panel</a>
 
         <ul class="navbar-nav ms-auto align-items-center">
             <li class="nav-item dropdown">
@@ -254,7 +284,6 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 </a>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                     <li>
-                         
                         <a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#profileModal">
                             <i class="bi bi-person-badge-fill"></i> Profile Settings
                         </a>
@@ -262,7 +291,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                     <li><hr class="dropdown-divider"></li>
                     <li>
                         <a class="dropdown-item text-danger" href="logout.php">
-                             <i class="bi bi-box-arrow-right"></i> Logout
+                            <i class="bi bi-box-arrow-right"></i> Logout
                         </a>
                     </li>
                 </ul>
@@ -274,7 +303,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
         <!-- Add overlay for mobile sidebar -->
         <div class="sidebar-overlay" id="sidebarOverlay"></div>
         <div class="sidebar d-flex flex-column flex-shrink-0" id="sidebar">
-             <div class="sidebar-header">
+            <div class="sidebar-header">
                 <span class="sidebar-logo"><i class="bi bi-clipboard-check-fill"></i></span> 
                 <span class="sidebar-title">School Voting</span>
             </div>
@@ -311,7 +340,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 </li>
             </ul>
             <div class="sidebar-footer border-top p-3 mt-auto">
-                 <a class="nav-link logout p-2 justify-content-center" href="logout.php" title="Logout">
+                <a class="nav-link logout p-2 justify-content-center" href="logout.php" title="Logout">
                     <i class="bi bi-box-arrow-right"></i>
                     <span class="ms-2">Logout</span>
                 </a>
@@ -405,12 +434,13 @@ document.addEventListener('DOMContentLoaded', function() {
         if (isMobile) {
             sidebar.classList.toggle('show');
             sidebarOverlay.classList.toggle('show');
-            document.body.style.overflow = sidebar.classList.contains('show') ? 'hidden' : '';
+            document.body.classList.toggle('sidebar-open');
         } else {
             const isCollapsed = sidebar.classList.contains('collapsed');
             sidebar.classList.toggle('collapsed');
             mainContent.classList.toggle('expanded');
             navbar.classList.toggle('expanded');
+            
             try {
                 localStorage.setItem('sidebarState', isCollapsed ? 'expanded' : 'collapsed');
             } catch (e) {}
@@ -429,7 +459,7 @@ document.addEventListener('DOMContentLoaded', function() {
             mainContent.classList.remove('expanded');
             navbar.classList.remove('expanded');
             sidebarOverlay.classList.remove('show');
-            document.body.style.overflow = '';
+            document.body.classList.remove('sidebar-open');
         } else if (!isMobile && wasNotMobile) {
             // Restore desktop state
             try {
@@ -447,6 +477,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (sidebarToggle) {
         sidebarToggle.addEventListener('click', function(e) {
             e.preventDefault();
+            e.stopPropagation();
             toggleSidebar();
         });
     }
@@ -456,7 +487,7 @@ document.addEventListener('DOMContentLoaded', function() {
         sidebarOverlay.addEventListener('click', function() {
             sidebar.classList.remove('show');
             sidebarOverlay.classList.remove('show');
-            document.body.style.overflow = '';
+            document.body.classList.remove('sidebar-open');
         });
     }
 
@@ -467,7 +498,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (isMobile && sidebar.classList.contains('show')) {
                 sidebar.classList.remove('show');
                 sidebarOverlay.classList.remove('show');
-                document.body.style.overflow = '';
+                document.body.classList.remove('sidebar-open');
             }
         });
     });

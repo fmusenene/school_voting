@@ -1,8 +1,14 @@
 <?php
 // Start session **before** any output
 if (session_status() === PHP_SESSION_NONE) {
-session_start();
+    session_start();
 }
+
+// Generate CSP nonce if not already set
+if (empty($_SESSION['csp_nonce'])) {
+    $_SESSION['csp_nonce'] = base64_encode(random_bytes(16));
+}
+$nonce = htmlspecialchars($_SESSION['csp_nonce'], ENT_QUOTES, 'UTF-8');
 
 // Establish database connection ($conn PDO object)
 require_once "../config/database.php"; // Relative path from admin folder
@@ -67,12 +73,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     }
 }
-
-// Generate CSP nonce
-if (empty($_SESSION['csp_nonce'])) {
-     $_SESSION['csp_nonce'] = base64_encode(random_bytes(16));
-}
-$nonce = htmlspecialchars($_SESSION['csp_nonce'], ENT_QUOTES, 'UTF-8');
 
 // Background image path
 $background_image_path = '../assets/images/background-logos.png';

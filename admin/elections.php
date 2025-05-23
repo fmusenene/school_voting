@@ -88,9 +88,12 @@ try {
     $elections_sql = "SELECT
         e.*,
         (SELECT COUNT(*) FROM positions p WHERE p.election_id = e.id) as position_count,
-        (SELECT COUNT(*) FROM votes v WHERE v.election_id = e.id) as vote_count
+        (SELECT COUNT(*) FROM votes v 
+         INNER JOIN candidates c ON v.candidate_id = c.id 
+         INNER JOIN positions p ON c.position_id = p.id 
+         WHERE p.election_id = e.id) as vote_count
     FROM elections e
-    ORDER BY e.created_at DESC"; // Simpler query if detailed vote counts aren't essential on this page
+    ORDER BY e.created_at DESC";
     $elections = $conn->query($elections_sql)->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (PDOException $e) {
@@ -730,6 +733,98 @@ document.addEventListener('DOMContentLoaded', function() {
          }
      });
 
+    // Initialize sidebar toggle functionality
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
+    const mainContent = document.getElementById('mainContent');
+    const navbar = document.querySelector('.navbar');
+    let isMobile = window.innerWidth < 992;
+
+    function toggleSidebar() {
+        if (isMobile) {
+            sidebar.classList.toggle('show');
+            sidebarOverlay.classList.toggle('show');
+            document.body.classList.toggle('sidebar-open');
+        } else {
+            const isCollapsed = sidebar.classList.contains('collapsed');
+            sidebar.classList.toggle('collapsed');
+            mainContent.classList.toggle('expanded');
+            navbar.classList.toggle('expanded');
+            
+            try {
+                localStorage.setItem('sidebarState', isCollapsed ? 'expanded' : 'collapsed');
+            } catch (e) {}
+        }
+    }
+
+    // Handle window resize
+    window.addEventListener('resize', function() {
+        const wasNotMobile = !isMobile;
+        isMobile = window.innerWidth < 992;
+        
+        if (wasNotMobile && isMobile) {
+            // Switching to mobile view
+            sidebar.classList.remove('collapsed');
+            sidebar.classList.remove('show');
+            mainContent.classList.remove('expanded');
+            navbar.classList.remove('expanded');
+            sidebarOverlay.classList.remove('show');
+            document.body.classList.remove('sidebar-open');
+        } else if (!isMobile && wasNotMobile) {
+            // Restore desktop state
+            try {
+                const storedState = localStorage.getItem('sidebarState');
+                if (storedState === 'collapsed') {
+                    sidebar.classList.add('collapsed');
+                    mainContent.classList.add('expanded');
+                    navbar.classList.add('expanded');
+                }
+            } catch (e) {}
+        }
+    });
+
+    // Toggle sidebar on button click
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleSidebar();
+        });
+    }
+
+    // Close sidebar when clicking overlay
+    if (sidebarOverlay) {
+        sidebarOverlay.addEventListener('click', function() {
+            sidebar.classList.remove('show');
+            sidebarOverlay.classList.remove('show');
+            document.body.classList.remove('sidebar-open');
+        });
+    }
+
+    // Close sidebar when clicking a link on mobile
+    const sidebarLinks = sidebar.querySelectorAll('a');
+    sidebarLinks.forEach(link => {
+        link.addEventListener('click', function() {
+            if (isMobile && sidebar.classList.contains('show')) {
+                sidebar.classList.remove('show');
+                sidebarOverlay.classList.remove('show');
+                document.body.classList.remove('sidebar-open');
+            }
+        });
+    });
+
+    // Initialize sidebar state on page load
+    if (!isMobile) {
+        try {
+            const storedState = localStorage.getItem('sidebarState');
+            if (storedState === 'collapsed') {
+                sidebar.classList.add('collapsed');
+                mainContent.classList.add('expanded');
+                navbar.classList.add('expanded');
+            }
+        } catch (e) {}
+    }
 
 }); // End DOMContentLoaded
 </script>

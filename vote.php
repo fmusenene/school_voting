@@ -165,7 +165,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !$error && !empty($positions)) {
             }
 
             // 3. Record Votes (Including all relevant IDs)
-            $stmt_insert_vote = $conn->prepare("INSERT INTO votes (election_id, position_id, candidate_id, voting_code_id) VALUES (:election_id, :position_id, :candidate_id, :voting_code_id)");
+            $stmt_insert_vote = $conn->prepare("INSERT INTO votes (candidate_id, voting_code_id) VALUES (:candidate_id, :voting_code_id)");
 
             foreach ($submitted_votes as $position_id => $candidate_id) {
                  $position_id_int = filter_var($position_id, FILTER_VALIDATE_INT);
@@ -182,8 +182,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !$error && !empty($positions)) {
                     }
                     if ($candidate_exists_in_position) {
                         $stmt_insert_vote->execute([
-                             ':election_id' => $election_id,
-                             ':position_id' => $position_id_int,
                              ':candidate_id' => $candidate_id_int,
                              ':voting_code_id' => $voting_code_db_id
                          ]);

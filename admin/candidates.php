@@ -159,7 +159,7 @@ try {
 
 
     // --- Fetch Main Candidate List based on filters ---
-    $sql_candidates = "SELECT c.id, c.name, c.description, c.photo, c.position_id,
+    $sql_candidates = "SELECT c.id, c.name, c.bio, c.photo, c.position_id,
                         p.title as position_title, p.election_id, e.title as election_title
                        FROM candidates c
                        LEFT JOIN positions p ON c.position_id = p.id
@@ -434,7 +434,7 @@ require_once "includes/header.php";
                                     </td>
                                         <td>
                                             <span class="candidate-name"><?php echo htmlspecialchars($candidate['name']); ?></span>
-                                            <small class="position-details" title="<?php echo htmlspecialchars($candidate['description'] ?? ''); ?>"><?php echo htmlspecialchars($candidate['description'] ?? ''); ?></small>
+                                            <small class="position-details" title="<?php echo htmlspecialchars($candidate['bio'] ?? ''); ?>"><?php echo htmlspecialchars($candidate['bio'] ?? ''); ?></small>
                                         </td>
                                         <td>
                                             <a href="?position_id=<?php echo $candidate['position_id']; ?>&election_id=<?php echo $candidate['election_id']; ?>" class="link-secondary text-decoration-none">
@@ -516,8 +516,8 @@ require_once "includes/header.php";
                                  <div class="invalid-feedback">Please select a position.</div>
                             </div>
                             <div class="mb-3">
-                                <label for="add_description" class="form-label">Short Description/Slogan <span class="text-muted small">(Optional)</span></label>
-                                <textarea class="form-control" id="add_description" name="description" rows="2"></textarea>
+                                <label for="add_bio" class="form-label">Short Description/Slogan <span class="text-muted small">(Optional)</span></label>
+                                <textarea class="form-control" id="add_bio" name="bio" rows="2"></textarea>
                             </div>
                         </div>
                          <div class="col-md-4 text-center">
@@ -575,8 +575,8 @@ require_once "includes/header.php";
                                 <div class="invalid-feedback">Please select a position.</div>
                             </div>
                             <div class="mb-3">
-                                <label for="edit_description" class="form-label">Description <span class="text-muted small">(Optional)</span></label>
-                                <textarea class="form-control" id="edit_description" name="description" rows="3"></textarea>
+                                <label for="edit_bio" class="form-label">Description <span class="text-muted small">(Optional)</span></label>
+                                <textarea class="form-control" id="edit_bio" name="bio" rows="3"></textarea>
                             </div>
                         </div>
                         <div class="col-md-4 text-center">
@@ -897,7 +897,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         document.getElementById('edit_candidate_id').value = cand.id;
                         document.getElementById('edit_name').value = cand.name;
                         document.getElementById('edit_position_id').value = cand.position_id;
-                        document.getElementById('edit_description').value = cand.description || '';
+                        document.getElementById('edit_bio').value = cand.bio || '';
                         const preview = document.getElementById('edit_photoPreview');
                         // Construct path relative to this script's dir (admin/) to reach project root uploads
                         const photoPathFromRoot = cand.photo ? `../${ltrim(cand.photo, '/')}` : defaultAvatarPath;

@@ -249,12 +249,12 @@ try {
                 <div class="stats-icon" style="background: #e3f2fd; color: #1976d2;">
                     <i class="bi bi-calendar2-check"></i>
                 </div>
-                <h3 class="stats-number"><?php echo $elections_result['total']; ?></h3>
-                <p class="stats-label">Elections</p>
+                <div class="stats-number"><?php echo $elections_result['total']; ?></div>
+                <div class="stats-label">Total Elections</div>
                 <div class="stats-detail">
-                    <span class="text-success"><?php echo $elections_result['active']; ?> Active</span> •
-                    <span class="text-warning"><?php echo $elections_result['pending']; ?> Pending</span> •
-                    <span class="text-secondary"><?php echo $elections_result['completed']; ?> Completed</span>
+                    <?php echo $elections_result['active']; ?> Active,
+                    <?php echo $elections_result['pending']; ?> Pending,
+                    <?php echo $elections_result['completed']; ?> Completed
                 </div>
             </div>
         </div>
@@ -423,75 +423,99 @@ try {
     </div>
 </div>
 
-<script>
-document.getElementById('newElectionForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    // Show loading state
-    const submitButton = this.querySelector('button[type="submit"]');
-    const originalText = submitButton.innerHTML;
-    submitButton.disabled = true;
-    submitButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Creating...';
-    
-    const formData = new FormData(this);
-    
-    fetch('elections.php', {
-        method: 'POST',
-        body: formData,
-        headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-        }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showNotification('Election created successfully');
-            // Close modal using Bootstrap's modal method
-            const modalElement = document.getElementById('newElectionModal');
-            const modal = bootstrap.Modal.getInstance(modalElement);
-            if (modal) {
-                modal.hide();
-            } else {
-                // If modal instance doesn't exist, create one and hide it
-                const newModal = new bootstrap.Modal(modalElement);
-                newModal.hide();
-            }
-            // Redirect after a short delay
-            setTimeout(() => {
-                window.location.href = 'elections.php';
-            }, 1000);
+<script nonce="<?php echo $nonce; ?>">
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize sidebar toggle functionality
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
+    const mainContent = document.getElementById('mainContent');
+    const navbar = document.querySelector('.navbar');
+    let isMobile = window.innerWidth < 992;
+
+    function toggleSidebar() {
+        if (isMobile) {
+            sidebar.classList.toggle('show');
+            sidebarOverlay.classList.toggle('show');
+            document.body.classList.toggle('sidebar-open');
         } else {
-            showNotification(data.message || 'Error creating election', 'error');
+            const isCollapsed = sidebar.classList.contains('collapsed');
+            sidebar.classList.toggle('collapsed');
+            mainContent.classList.toggle('expanded');
+            navbar.classList.toggle('expanded');
+            
+            try {
+                localStorage.setItem('sidebarState', isCollapsed ? 'expanded' : 'collapsed');
+            } catch (e) {}
         }
-    })
-    .catch(error => {
-        showNotification('Error creating election', 'error');
-    })
-    .finally(() => {
-        // Reset button state
-        submitButton.disabled = false;
-        submitButton.innerHTML = originalText;
-    });
-});
-
-// Add date validation
-document.getElementById('end_date').addEventListener('change', function() {
-    const startDate = document.getElementById('start_date').value;
-    const endDate = this.value;
-    
-    if (startDate && endDate && endDate < startDate) {
-        showNotification('End date cannot be earlier than start date', 'error');
-        this.value = '';
     }
-});
 
-document.getElementById('start_date').addEventListener('change', function() {
-    const startDate = this.value;
-    const endDate = document.getElementById('end_date').value;
-    
-    if (startDate && endDate && endDate < startDate) {
-        showNotification('End date cannot be earlier than start date', 'error');
-        document.getElementById('end_date').value = '';
+    // Handle window resize
+    window.addEventListener('resize', function() {
+        const wasNotMobile = !isMobile;
+        isMobile = window.innerWidth < 992;
+        
+        if (wasNotMobile && isMobile) {
+            // Switching to mobile view
+            sidebar.classList.remove('collapsed');
+            sidebar.classList.remove('show');
+            mainContent.classList.remove('expanded');
+            navbar.classList.remove('expanded');
+            sidebarOverlay.classList.remove('show');
+            document.body.classList.remove('sidebar-open');
+        } else if (!isMobile && wasNotMobile) {
+            // Restore desktop state
+            try {
+                const storedState = localStorage.getItem('sidebarState');
+                if (storedState === 'collapsed') {
+                    sidebar.classList.add('collapsed');
+                    mainContent.classList.add('expanded');
+                    navbar.classList.add('expanded');
+                }
+            } catch (e) {}
+        }
+    });
+
+    // Toggle sidebar on button click
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleSidebar();
+        });
+    }
+
+    // Close sidebar when clicking overlay
+    if (sidebarOverlay) {
+        sidebarOverlay.addEventListener('click', function() {
+            sidebar.classList.remove('show');
+            sidebarOverlay.classList.remove('show');
+            document.body.classList.remove('sidebar-open');
+        });
+    }
+
+    // Close sidebar when clicking a link on mobile
+    const sidebarLinks = sidebar.querySelectorAll('a');
+    sidebarLinks.forEach(link => {
+        link.addEventListener('click', function() {
+            if (isMobile && sidebar.classList.contains('show')) {
+                sidebar.classList.remove('show');
+                sidebarOverlay.classList.remove('show');
+                document.body.classList.remove('sidebar-open');
+            }
+        });
+    });
+
+    // Initialize sidebar state on page load
+    if (!isMobile) {
+        try {
+            const storedState = localStorage.getItem('sidebarState');
+            if (storedState === 'collapsed') {
+                sidebar.classList.add('collapsed');
+                mainContent.classList.add('expanded');
+                navbar.classList.add('expanded');
+            }
+        } catch (e) {}
     }
 });
 </script>

@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') { $response['message'] = 'Invalid req
 $candidate_id = filter_input(INPUT_POST, 'candidate_id', FILTER_VALIDATE_INT);
 $name = trim($_POST['name'] ?? '');
 $position_id = filter_input(INPUT_POST, 'position_id', FILTER_VALIDATE_INT);
-$description = trim($_POST['description'] ?? '');
+$bio = trim($_POST['bio'] ?? '');
 
 if (!$candidate_id || empty($name) || !$position_id) { $response['message'] = 'Missing required fields (ID, Name, Position).'; http_response_code(400); echo json_encode($response); exit; }
 
@@ -88,17 +88,17 @@ try {
     // --- Prepare Database Update ---
     $params = [
         ':name' => $name,
-        ':description' => $description,
+        ':bio' => $bio,
         ':position_id' => $position_id,
         ':id' => $candidate_id
     ];
 
     // Determine which SQL query to use based on whether a new photo was uploaded
     if ($new_photo_path_relative !== null) {
-        $sql = "UPDATE candidates SET name = :name, description = :description, position_id = :position_id, photo = :photo WHERE id = :id";
+        $sql = "UPDATE candidates SET name = :name, bio = :bio, position_id = :position_id, photo = :photo WHERE id = :id";
         $params[':photo'] = $new_photo_path_relative;
     } else {
-        $sql = "UPDATE candidates SET name = :name, description = :description, position_id = :position_id WHERE id = :id";
+        $sql = "UPDATE candidates SET name = :name, bio = :bio, position_id = :position_id WHERE id = :id";
     }
 
     $stmt = $conn->prepare($sql); // Use $conn

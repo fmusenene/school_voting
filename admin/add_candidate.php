@@ -98,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 // Get and validate input data
 $name = trim($_POST['name'] ?? '');
 $position_id = filter_input(INPUT_POST, 'position_id', FILTER_VALIDATE_INT);
-$description = trim($_POST['description'] ?? ''); // Optional
+$bio = trim($_POST['bio'] ?? ''); // Optional
 
 if (empty($name) || !$position_id) {
     $response['message'] = 'Candidate Name and Position are required.';
@@ -118,12 +118,12 @@ try {
     }
 
     // Insert into database
-    $sql = "INSERT INTO candidates (name, position_id, description, photo) VALUES (:name, :position_id, :description, :photo)";
+    $sql = "INSERT INTO candidates (name, position_id, bio, photo) VALUES (:name, :position_id, :bio, :photo)";
     $stmt = $conn->prepare($sql); // Use $conn
 
     $stmt->bindParam(':name', $name, PDO::PARAM_STR);
     $stmt->bindParam(':position_id', $position_id, PDO::PARAM_INT);
-    $stmt->bindParam(':description', $description, PDO::PARAM_STR);
+    $stmt->bindParam(':bio', $bio, PDO::PARAM_STR);
     // Bind photo path (can be null if no file uploaded/error)
     $stmt->bindParam(':photo', $photo_path_relative_to_root, PDO::PARAM_STR);
 

@@ -13,12 +13,12 @@ try {
 
     $candidate_id = $_POST['candidate_id'];
     $name = $_POST['name'];
-    $description = $_POST['description'];
+    $bio = $_POST['bio'];
     $position_id = $_POST['position_id'];
 
     // Update basic info
-    $stmt = $pdo->prepare("UPDATE candidates SET name = ?, description = ?, position_id = ? WHERE id = ?");
-    $stmt->execute([$name, $description, $position_id, $candidate_id]);
+    $stmt = $pdo->prepare("UPDATE candidates SET name = ?, bio = ?, position_id = ? WHERE id = ?");
+    $stmt->execute([$name, $bio, $position_id, $candidate_id]);
 
     // Handle photo upload if provided
     if (isset($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
