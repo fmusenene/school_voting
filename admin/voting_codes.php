@@ -588,7 +588,7 @@ $nonce = $_SESSION['csp_nonce'] ?? '';
                 </div>
             </div>
         </div>
-        <div class="card-body p-3"> 
+        <div class="card-body p-3 a"> 
             <form method="post" id="codesForm">
                 <div class="row g-3">
                     <?php if (empty($voting_codes)): ?>
