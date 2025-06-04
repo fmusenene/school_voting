@@ -179,7 +179,7 @@ echo "<h3>Positions</h3>";
 $positions_sql = "SELECT p.*, e.title as election_title 
                   FROM positions p 
                   JOIN elections e ON p.election_id = e.id 
-                  ORDER BY p.id";
+                  ORDER BY p.id ASC";
 $positions_result = mysqli_query($conn, $positions_sql);
 if (mysqli_num_rows($positions_result) > 0) {
     echo "<form method='POST'>";
