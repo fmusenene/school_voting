@@ -588,7 +588,7 @@ $nonce = $_SESSION['csp_nonce'] ?? '';
                 </div>
             </div>
         </div>
-        <div class="card-body p-3 a"> 
+        <div class="card-body p-3"> 
             <form method="post" id="codesForm">
                 <div class="row g-3">
                     <?php if (empty($voting_codes)): ?>
@@ -602,9 +602,9 @@ $nonce = $_SESSION['csp_nonce'] ?? '';
                         </div>
                     <?php else: ?>
                         <?php foreach ($voting_codes as $code): ?>
-                            <div class="col-xl-3 col-lg-4 col-md-6">
-                                <div class="card h-100 voting-code-card <?php echo $code['is_used'] ? 'used' : 'available'; ?>">
-                                    <div class="card-body">
+                            <div class="col-3 col-xl-3 col-lg-4 col-md-6">
+                                <div class="card voting-code-card <?php echo $code['is_used'] ? 'used' : 'available'; ?>">
+                                    <div class="card-body p-0">
                                         <div class="d-flex justify-content-between align-items-start card-header-actions">
                                             <div class="form-check">
                                                 <input type="checkbox" name="selected_codes[]" value="<?php echo $code['id']; ?>" 
@@ -621,7 +621,7 @@ $nonce = $_SESSION['csp_nonce'] ?? '';
                                             </div>
                                         </div>
 
-                                        <div class="code-display">
+                                        <div class="code-display p-0" style="font-family: 'Courier New', Courier, monospace; font-size: 1.2rem; text-align: center; letter-spacing: 2px;">
                                             <?php echo htmlspecialchars($code['code']); ?>
                                         </div>
                                     </div>
