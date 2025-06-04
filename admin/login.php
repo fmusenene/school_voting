@@ -198,9 +198,9 @@ $background_style = file_exists($background_image_path)
 <body>
     <div class="main-wrapper container">
         <div class="row justify-content-center">
-            <div class="col-lg-5 col-md-8">
+            <div class="col-lg-5 col-md-8 ">
                 <div class="login-wrapper">
-                    <main class="login-container">
+                    <main class="login-container"   style="margin-top: 45rem!important;">
                         <div class="logo-container">
                             <img src="../assets/images/gombe-ss-logo.png" alt="School Logo" class="logo" onerror="this.style.display='none';">
                              <h1 class="login-title">Administrator Login</h1>
