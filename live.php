@@ -30,7 +30,6 @@ $pageTitle = "Live Election Results";
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="300"> 
     <title><?php echo $pageTitle; ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
@@ -83,6 +82,7 @@ $pageTitle = "Live Election Results";
             border-left: 5px solid transparent;
             opacity: 0; animation: fadeInCard 0.5s ease-out forwards;
         }
+        /* Staggered animation for candidate cards */
         .slide.active .candidate-result-card:nth-child(2) { animation-delay: 0.1s; }
         .slide.active .candidate-result-card:nth-child(3) { animation-delay: 0.2s; }
         .slide.active .candidate-result-card:nth-child(4) { animation-delay: 0.3s; }
@@ -182,20 +182,16 @@ $pageTitle = "Live Election Results";
             // --- Configuration ---
             const CONFIG = {
                 AJAX_ENDPOINT: 'live_results_ajax.php',
-                REFRESH_INTERVAL_MS: 60000, // Refresh data every 60 seconds
-                RETRY_DELAY_MS: 20000,
-                // Dynamic interval settings
-                BASE_SLIDE_DURATION_MS: 4000, // Base time for any slide
-                PER_CANDIDATE_DURATION_MS: 1500 // Extra time per candidate
+                RETRY_DELAY_MS: 15000,
+                BASE_SLIDE_DURATION_MS: 2000,
+                PER_CANDIDATE_DURATION_MS: 1000 
             };
 
             // --- State ---
             let state = {
-                currentPositionIndex: -1,
+                currentPositionIndex: 0,
                 positionsData: [],
                 slideshowTimeoutId: null,
-                refreshIntervalId: null,
-                lastUpdateTime: null
             };
 
             // --- Helper Functions ---
@@ -207,7 +203,9 @@ $pageTitle = "Live Election Results";
                 hideStatus: () => { if (dom.statusOverlay) dom.statusOverlay.classList.add('hidden'); },
                 calculateDynamicInterval: (candidateCount) => {
                     if (candidateCount === 0) return CONFIG.BASE_SLIDE_DURATION_MS;
-                    return CONFIG.BASE_SLIDE_DURATION_MS + (candidateCount * CONFIG.PER_CANDIDATE_DURATION_MS);
+                    // Ensure there's a reasonable max time per slide
+                    const calculatedTime = CONFIG.BASE_SLIDE_DURATION_MS + (candidateCount * CONFIG.PER_CANDIDATE_DURATION_MS);
+                    return Math.min(calculatedTime, 20000); // Cap slide time at 20 seconds
                 },
                 restartProgressAnimation: (durationMs) => {
                     if (!dom.progressBar) return;
@@ -268,17 +266,14 @@ $pageTitle = "Live Election Results";
             // --- Slideshow Control ---
             function showSlide(slideIndex) {
                 if (slideIndex < 0 || slideIndex >= state.positionsData.length || !dom.slideshowContainer) return;
-
                 const newSlideId = `slide-pos-${state.positionsData[slideIndex].id}`;
                 const newSlide = document.getElementById(newSlideId);
                 const currentActive = dom.slideshowContainer.querySelector('.slide.active');
-
                 if (!newSlide || (currentActive === newSlide && !currentActive.classList.contains('exiting'))) return;
 
                 if (currentActive) {
                     currentActive.classList.remove('active');
                     currentActive.classList.add('exiting');
-                    currentActive.setAttribute('aria-hidden', 'true');
                     setTimeout(() => currentActive?.classList.remove('exiting'), 800);
                 }
                 
@@ -289,18 +284,25 @@ $pageTitle = "Live Election Results";
                 if (dom.slideIndicator) dom.slideIndicator.textContent = `Position ${slideIndex + 1} / ${state.positionsData.length}`;
             }
 
-            function runSlideshowCycle() {
-                stopSlideshow(); // Clear any existing timeout
-                if (state.positionsData.length === 0) return;
+            function stopSlideshow() { 
+                if (state.slideshowTimeoutId) clearTimeout(state.slideshowTimeoutId);
+                state.slideshowTimeoutId = null;
+                if (dom.progressBar) dom.progressBar.classList.remove('animate-progress');
+            }
 
-                state.currentPositionIndex++;
+            /**
+             * This is the main loop for the slideshow. It's a self-calling function
+             * that uses setTimeout to create a cycle.
+             */
+            function runSlideshowCycle() {
+                // First, check if the cycle is over.
                 if (state.currentPositionIndex >= state.positionsData.length) {
-                    // Reached the end, fetch new data
-                    state.currentPositionIndex = -1; 
-                    fetchResults();
-                    return;
+                    console.log("Full slideshow cycle complete. Fetching new results.");
+                    fetchResults(); // The cycle is over, so fetch new data.
+                    return; // End this chain of timeouts.
                 }
-                
+
+                // --- Handle the current slide ---
                 showSlide(state.currentPositionIndex);
                 
                 const currentPosition = state.positionsData[state.currentPositionIndex];
@@ -309,32 +311,17 @@ $pageTitle = "Live Election Results";
                 
                 helpers.restartProgressAnimation(dynamicInterval);
                 
-                // Set timeout for the next cycle
+                // --- Prepare for the next slide ---
+                state.currentPositionIndex++;
+                
+                // Schedule the next call to this function after the current slide's duration.
                 state.slideshowTimeoutId = setTimeout(runSlideshowCycle, dynamicInterval);
             }
 
-            function startSlideshow() {
-                if (state.positionsData.length > 0) {
-                    console.log("Starting slideshow...");
-                    state.currentPositionIndex = -1; // Reset to start from the beginning
-                    runSlideshowCycle(); 
-                } else { console.log("No position data, slideshow not started."); }
-            }
-
-            function stopSlideshow() { 
-                if (state.slideshowTimeoutId) {
-                    clearTimeout(state.slideshowTimeoutId);
-                    state.slideshowTimeoutId = null;
-                }
-                if (dom.progressBar) dom.progressBar.classList.remove('animate-progress');
-            }
-
-            function startRefreshTimer() { if (state.refreshIntervalId) clearInterval(state.refreshIntervalId); state.refreshIntervalId = setInterval(fetchResults, CONFIG.REFRESH_INTERVAL_MS); }
-
-            // --- Fetch Results from Server ---
+            // --- Data Fetching ---
             async function fetchResults() {
                 console.log("Fetching results...");
-                stopSlideshow();
+                stopSlideshow(); // Always stop any previous cycle before fetching.
                 helpers.updateStatus('Fetching latest results...', true);
 
                 try {
@@ -349,32 +336,41 @@ $pageTitle = "Live Election Results";
                     if (data?.election) {
                         if (dom.electionTitle) dom.electionTitle.textContent = data.election.title || 'Election Results';
                         state.positionsData = data.positions || [];
-                        state.lastUpdateTime = new Date();
-                        if(dom.lastUpdated) dom.lastUpdated.textContent = `Updated: ${state.lastUpdateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
-
+                        
                         dom.slideshowContainer.innerHTML = ''; // Clear previous content
+
                         if (state.positionsData.length > 0) {
-                            state.positionsData.forEach((pos, index) => { const slideElement = renderSlide(index); if(slideElement) dom.slideshowContainer.appendChild(slideElement); });
+                            state.positionsData.forEach((pos, index) => { 
+                                const slideElement = renderSlide(index); 
+                                if(slideElement) dom.slideshowContainer.appendChild(slideElement); 
+                            });
                             helpers.hideStatus();
-                            startSlideshow();
-                        } else { helpers.updateStatus('No positions or candidates found for the active election.', false); }
-                    } else { helpers.updateStatus('No active election found.', false); state.positionsData = []; }
+                            // Reset index and start the new slideshow cycle
+                            state.currentPositionIndex = 0;
+                            runSlideshowCycle();
+                        } else { 
+                            helpers.updateStatus('No positions or candidates found for the active election.', false); 
+                        }
+                    } else { 
+                        helpers.updateStatus('No active election found.', false); 
+                        state.positionsData = []; 
+                    }
 
                 } catch (error) {
                     console.error("Fetch results error:", error);
                     helpers.updateStatus(`Error loading results: ${error.message}. Retrying...`, false);
+                    // Schedule a retry after a delay.
                     setTimeout(fetchResults, CONFIG.RETRY_DELAY_MS);
                 }
             }
 
-            // --- Fullscreen ---
+            // --- Fullscreen Toggle ---
             function toggleFullScreen() { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(err => console.error(err)); else if (document.exitFullscreen) document.exitFullscreen(); }
             dom.fullscreenBtn?.addEventListener('click', toggleFullScreen);
             document.addEventListener('fullscreenchange', () => { const icon = dom.fullscreenBtn?.querySelector('i'); if (icon) icon.className = document.fullscreenElement ? 'bi bi-fullscreen-exit fs-5' : 'bi bi-arrows-fullscreen fs-5'; });
 
             // --- Initial Load ---
             fetchResults();
-            startRefreshTimer();
 
         }); // End DOMContentLoaded
     </script>
