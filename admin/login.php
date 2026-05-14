@@ -237,6 +237,12 @@ $background_style = file_exists($background_image_path)
                             </button>
                         </form>
 
+                        <div class="text-center mt-3">
+                            <a href="../forgot_password.php" style="color: var(--primary-color); text-decoration: none; font-size: 0.9rem;">
+                                <i class="bi bi-question-circle"></i> Forgot Password?
+                            </a>
+                        </div>
+
                          <div class="voter-login-link mt-4">
                             <a href="../index.php">
                                  <i class="bi bi-people-fill"></i> Back to Student Voter Login

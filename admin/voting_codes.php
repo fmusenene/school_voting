@@ -397,29 +397,50 @@ $nonce = $_SESSION['csp_nonce'] ?? '';
 
       /* Print Styles */
       @media print {
-        body { background-color: #fff !important; }
-        .sidebar, .navbar, .page-header .btn, .controls-card, .table-actions, .action-buttons .btn, .pagination-nav, #sidebarToggle, .data-display-card .card-header .btn-group { display: none !important; }
+        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        body { background-color: #fff !important; margin: 0 !important; padding: 0 !important; }
+        .sidebar, .navbar, .page-header .btn, .controls-card, .table-actions, .action-buttons .btn, .pagination-nav, #sidebarToggle, .data-display-card .card-header .btn-group, #alertPlaceholder, .stat-card { display: none !important; }
         .main-content, .main-content.expanded { margin-left: 0 !important; width: 100% !important; padding: 0 !important; }
-        .container-fluid { padding: 0 !important; }
-        .page-header { border-bottom: none; margin-bottom: 1rem; text-align: center;}
-        .page-header h2 { font-size: 16pt; } .page-header p { display: none; }
-        .card, .stat-card, .data-display-card { box-shadow: none !important; border: 1px solid #ddd !important; margin-bottom: .5rem; page-break-inside: avoid; }
-        .stat-card .card-body { padding: .5rem !important;} .stat-card .stat-label { font-size: 8pt; } .stat-card .stat-value { font-size: 12pt;} .stat-icon { display: none; }
+        .container-fluid { padding: 0 !important; max-width: 100% !important; }
+        .page-header { border-bottom: none; margin-bottom: 0.5rem; text-align: center; padding: 0.5rem 0 !important;}
+        .page-header h2 { font-size: 16pt; color: #000 !important; margin: 0 !important; } .page-header p { display: none; }
+        .data-display-card { box-shadow: none !important; border: none !important; margin: 0 !important; page-break-inside: avoid; }
+        .data-display-card .card-header { display: none !important; }
+        .data-display-card .card-body { padding: 0.5rem !important; }
         .pagination-info { display: none; }
         a { text-decoration: none; color: #000; }
         .no-codes i { display: none; }
 
-        /* List Print */
-        .table { font-size: 9pt; } .table th, .table td { padding: .4rem !important; } .table code { background: none; padding: 0; font-size: inherit; }
-        .table .badge { border: 1px solid #ccc; background-color: #eee !important; color: #000 !important; font-size: 8pt; }
-        
-        /* Grid Print */
-        .codes-grid-container { display: grid !important; grid-template-columns: repeat(6, 1fr) !important; gap: 0.5rem !important; padding: 0 !important; }
-        .data-display-card .card-body { padding: 0 !important; }
-        .code-card { page-break-inside: avoid; padding: 0.5rem !important; border: 1px solid #666 !important; box-shadow: none !important; }
-        .code-card-code { font-size: 11pt !important; margin-bottom: 0.25rem !important; }
-        .code-card .badge { font-size: 7pt !important; }
+        /* Hide list view in print, force grid view */
+        .table-responsive, .table { display: none !important; }
+        .codes-grid-container { display: grid !important; grid-template-columns: repeat(4, 1fr) !important; gap: 0.5rem !important; padding: 0.5rem !important; width: 100% !important; }
+
+        /* Grid Print - 32 codes per page (4 columns x 8 rows) */
+        .code-card { page-break-inside: avoid; padding: 0.75rem !important; border: 2px solid #000 !important; box-shadow: none !important; position: relative; background-color: #fff !important; min-height: 100px !important; height: 100px !important; display: flex !important; flex-direction: column !important; justify-content: center !important; align-items: center !important; }
+        .code-card::before {
+          content: '';
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          width: 50px;
+          height: 50px;
+          background-image: url('../assets/images/gombe-ss-logo.png');
+          background-size: contain;
+          background-repeat: no-repeat;
+          background-position: center;
+          opacity: 0.1;
+          z-index: 0;
+        }
+        .code-card-code { font-size: 16pt !important; margin: 0 !important; color: #000 !important; position: relative; z-index: 1; font-weight: bold; letter-spacing: 2px; }
+        .code-card .badge { font-size: 9pt !important; position: relative; z-index: 1; border: 1px solid #000 !important; background-color: #fff !important; color: #000 !important; padding: 0.25rem 0.5rem !important; margin-top: 0.25rem !important; }
         .code-card .delete-code-btn { display: none !important; }
+
+        /* Ensure page breaks don't split cards */
+        @page {
+          size: landscape;
+          margin: 0.5cm;
+        }
       }
 
 </style>
@@ -1017,25 +1038,39 @@ function confirmDeleteSelected() {
 }
 
 function printCodes() {
-    const currentView = '<?php echo $view; ?>';
     const electionTitle = `<?php echo $selected_election_id ? htmlspecialchars(current(array_filter($elections, fn($e) => $e['id'] == $selected_election_id))['title'] ?? 'Selected Election', ENT_QUOTES) : 'All Elections'; ?>`;
-    let contentToPrint;
+    const cards = [];
 
-    if (currentView === 'grid') {
-        const grid = document.querySelector('.codes-grid-container');
-        if (!grid) { alert("Grid not found for printing."); return; }
-        contentToPrint = grid.outerHTML;
-    } else {
-        const table = document.querySelector('.voting-codes-table');
-        if (!table) { alert("Table not found for printing."); return; }
-        const tableClone = table.cloneNode(true);
-        // Remove checkbox and action columns from the clone for printing
-        tableClone.querySelectorAll('tr').forEach(tr => {
-            tr.cells[0]?.remove(); // first cell (checkbox)
-            tr.cells[tr.cells.length - 1]?.remove(); // last cell (action)
+    document.querySelectorAll('.code-card').forEach(card => {
+        const code = card.querySelector('.code-card-code')?.textContent.trim();
+        const status = card.querySelector('.badge')?.textContent.trim();
+        if (code) {
+            cards.push({ code, status: status || 'Available' });
+        }
+    });
+
+    if (cards.length === 0) {
+        document.querySelectorAll('.voting-codes-table tbody tr').forEach(row => {
+            const code = row.querySelector('td:nth-child(2) code')?.textContent.trim();
+            const status = row.querySelector('td:nth-child(4) .badge')?.textContent.trim();
+            if (code) {
+                cards.push({ code, status: status || 'Available' });
+            }
         });
-        contentToPrint = tableClone.outerHTML;
     }
+
+    if (cards.length === 0) {
+        alert('No voting codes found for printing.');
+        return;
+    }
+
+    const cardsHtml = cards.map(item => `
+        <div class="print-code-card">
+            <img class="print-watermark" src="/schoolvoting/assets/images/gombe-ss-logo.png" alt="">
+            <div class="print-code">${item.code}</div>
+            <div class="print-status ${item.status.toLowerCase() === 'used' ? 'used' : 'available'}">${item.status}</div>
+        </div>
+    `).join('');
 
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
@@ -1044,21 +1079,109 @@ function printCodes() {
         <head>
             <meta charset="UTF-8">
             <title>Voting Codes - ${electionTitle}</title>
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
             <style>
-                body { font-family: sans-serif; }
-                h2 { font-size: 16pt; text-align: center; margin-bottom: 1rem; }
-                ${document.querySelector('style[nonce]').innerHTML} /* Copy existing styles */
+                @page {
+                    size: A4 landscape;
+                    margin: 7mm;
+                }
+
+                * {
+                    box-sizing: border-box;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
+                }
+
+                body {
+                    margin: 0;
+                    padding: 0;
+                    background: #ffffff;
+                    color: #111827;
+                    font-family: Arial, Helvetica, sans-serif;
+                }
+
+                .print-title {
+                    text-align: center;
+                    font-size: 15px;
+                    font-weight: 700;
+                    margin: 0 0 3mm 0;
+                    color: #111827;
+                }
+
+                .print-grid {
+                    display: grid;
+                    grid-template-columns: repeat(8, 1fr);
+                    grid-auto-rows: 43mm;
+                    gap: 3mm;
+                    width: 100%;
+                }
+
+                .print-code-card {
+                    position: relative;
+                    overflow: hidden;
+                    border: 1.4px solid #d9e0ee;
+                    border-radius: 7px;
+                    background: #ffffff;
+                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.10);
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    page-break-inside: avoid;
+                    break-inside: avoid;
+                }
+
+                .print-watermark {
+                    position: absolute;
+                    width: 22mm;
+                    height: 22mm;
+                    object-fit: contain;
+                    opacity: 0.10;
+                    left: 50%;
+                    top: 50%;
+                    transform: translate(-50%, -50%);
+                    z-index: 0;
+                }
+
+                .print-code {
+                    position: relative;
+                    z-index: 1;
+                    font-family: "Courier New", monospace;
+                    font-size: 19px;
+                    font-weight: 800;
+                    letter-spacing: 2px;
+                    color: #244edf;
+                    line-height: 1;
+                    margin-bottom: 5mm;
+                    white-space: nowrap;
+                }
+
+                .print-status {
+                    position: relative;
+                    z-index: 1;
+                    color: #ffffff;
+                    border-radius: 5px;
+                    padding: 2px 8px;
+                    font-size: 10px;
+                    font-weight: 700;
+                    line-height: 1.4;
+                }
+
+                .print-status.available {
+                    background: #17b9d6;
+                }
+
+                .print-status.used {
+                    background: #dc3545;
+                }
             </style>
         </head>
         <body>
-            <h2>Voting Codes: ${electionTitle}</h2>
-            ${contentToPrint}
+            <h2 class="print-title">Voting Codes: ${electionTitle}</h2>
+            <div class="print-grid">${cardsHtml}</div>
             <script>
                 setTimeout(() => {
                     window.print();
-                    setTimeout(() => window.close(), 250);
+                    setTimeout(() => window.close(), 500);
                 }, 250);
             <\/script>
         </body>
