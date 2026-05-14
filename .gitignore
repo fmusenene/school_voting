@@ -24,8 +24,3 @@ config/database.php
 *.tmp
 *.temp
 *.swp
-
-# Local archives and user-uploaded media (do not commit)
-school-voting-app.zip
-uploads/candidates/*
-!uploads/candidates/.gitkeep
