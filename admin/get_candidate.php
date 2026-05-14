@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once "../config/database.php"; // Assumes $conn is a mysqli object
+require_once "../config/candidate_description_column.php";
 
 // --- Response Helper Function ---
 // Simplifies sending JSON responses and exiting
@@ -51,7 +52,7 @@ if (!$conn || $conn->connect_error) {
 try {
     // --- Construct Direct SQL Query ---
     // Embed the sanitized integer ID directly into the SQL string
-    $sql = "SELECT c.*, p.title as position_title, e.title as election_title
+    $sql = "SELECT c.*" . candidate_description_select_suffix($conn) . ", p.title as position_title, e.title as election_title
             FROM candidates c
             LEFT JOIN positions p ON c.position_id = p.id
             LEFT JOIN elections e ON p.election_id = e.id

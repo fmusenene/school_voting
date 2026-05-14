@@ -8,6 +8,7 @@ ini_set('display_errors', 1); // Dev
 date_default_timezone_set('Africa/Nairobi'); // EAT
 
 require_once "../config/database.php"; // Provides $conn (mysqli connection)
+require_once "../config/candidate_description_column.php";
 require_once "includes/session.php"; // Provides isAdminLoggedIn() - Ensure this is correct path
 
 // --- Helper Function: Send JSON Response ---
@@ -125,8 +126,9 @@ try {
 
     // --- Construct Single Conditional UPDATE SQL ---
     $sql = "UPDATE candidates SET ";
+    $textCol = candidate_text_column_name($conn);
     $sql .= "name = '$name_escaped', ";              // Quote escaped string
-    $sql .= "description = '$description_escaped', "; // Quote escaped string
+    $sql .= "$textCol = '$description_escaped', "; // physical column: description or bio
     $sql .= "position_id = $position_id ";           // Integer, no quotes
 
     // Only add photo update if a new one was uploaded

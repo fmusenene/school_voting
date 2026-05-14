@@ -16,6 +16,7 @@ date_default_timezone_set('Africa/Nairobi'); // EAT Timezone
 
 // Include base dependencies AFTER potential session start
 require_once "../config/database.php"; // Provides $conn (mysqli connection)
+require_once "../config/candidate_description_column.php";
 require_once "includes/session.php"; // Provides isAdminLoggedIn()
 
 // Check if DB connection is valid early
@@ -159,7 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'get_single') {
     }
 
     try {
-        $sql = "SELECT c.*, p.title as position_title, e.title as election_title
+        $sql = "SELECT c.*" . candidate_description_select_suffix($conn) . ", p.title as position_title, e.title as election_title
                 FROM candidates c
                 LEFT JOIN positions p ON c.position_id = p.id
                 LEFT JOIN elections e ON p.election_id = e.id
@@ -212,7 +213,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $action === 'create') {
             $photo_value = "NULL"; // Use SQL NULL if no photo
         }
 
-        $sql = "INSERT INTO candidates (name, position_id, description, photo)
+        $textCol = candidate_text_column_name($conn);
+        $sql = "INSERT INTO candidates (name, position_id, $textCol, photo)
                 VALUES ('$nameEsc', $position_id, '$descriptionEsc', $photo_value)";
 
         if (mysqli_query($conn, $sql)) {
@@ -268,9 +270,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $action === 'edit') {
         $description_escaped = mysqli_real_escape_string($conn, $description);
 
         // Construct Conditional UPDATE SQL
+        $textCol = candidate_text_column_name($conn);
         $sql = "UPDATE candidates SET ";
         $sql .= "name = '$name_escaped', ";
-        $sql .= "description = '$description_escaped', ";
+        $sql .= "$textCol = '$description_escaped', ";
         $sql .= "position_id = $position_id ";
 
         // Only update photo column if a new photo was successfully uploaded
@@ -299,7 +302,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $action === 'edit') {
         }
 
         // Fetch updated data to return
-        $select_sql = "SELECT c.*, p.title as position_title, e.title as election_title
+        $select_sql = "SELECT c.*" . candidate_description_select_suffix($conn) . ", p.title as position_title, e.title as election_title
                        FROM candidates c
                        LEFT JOIN positions p ON c.position_id = p.id
                        LEFT JOIN elections e ON p.election_id = e.id
@@ -499,7 +502,8 @@ try {
     }
 
     // Fetch Main Candidate List based on filters
-    $sql_candidates = "SELECT c.id, c.name, c.description, c.photo, c.position_id,
+    $descExpr = candidate_description_select_expr($conn);
+    $sql_candidates = "SELECT c.id, c.name, $descExpr, c.photo, c.position_id,
                            p.title as position_title, p.election_id, e.title as election_title
                        FROM candidates c
                        LEFT JOIN positions p ON c.position_id = p.id
@@ -550,7 +554,7 @@ try {
     $stats['total_votes'] = ($res_stat_votes) ? (int)mysqli_fetch_assoc($res_stat_votes)['total'] : 0;
     if($res_stat_votes) mysqli_free_result($res_stat_votes);
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
     error_log("Candidates Page Load Error: " . $e->getMessage());
     $fetch_error = "Could not load page data due to a database issue. Please try again later.";
     // Reset data arrays on error to prevent partial display

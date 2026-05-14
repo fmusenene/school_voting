@@ -545,7 +545,8 @@ $nonce = $_SESSION['csp_nonce'] ?? '';
                          <option value="12" <?php if($items_per_page == 12) echo 'selected'; ?>>12</option>
                          <option value="30" <?php if($items_per_page == 30) echo 'selected'; ?>>30</option>
                          <option value="60" <?php if($items_per_page == 60) echo 'selected'; ?>>60</option>
-                         <option value="102" <?php if($items_per_page == 102) echo 'selected'; ?>>102</option>
+                         <option value="1000" <?php if($items_per_page == 1000) echo 'selected'; ?>>1000</option>
+                         <option value="5000" <?php if($items_per_page == 5000) echo 'selected'; ?>>5000</option>
                      </select>
                      <span class="text-muted text-nowrap d-none d-sm-inline">per page</span>
                 </div>

@@ -7,6 +7,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
 // --- Includes ---
 require_once "config/database.php"; // Provides $conn (mysqli object)
+require_once "config/votes_schema.php";
 // require_once "includes/init.php"; // Include if needed
 // require_once "includes/session.php"; // Include if it contains helpers used here
 
@@ -103,7 +104,34 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !$error && !empty($positions)) {
         $isInTransaction = false; try { $conn->begin_transaction(); $isInTransaction = true;
             $sql_lock_code = "SELECT is_used FROM voting_codes WHERE id = $voting_code_db_id FOR UPDATE"; $result_lock = $conn->query($sql_lock_code); if ($result_lock === false) throw new mysqli_sql_exception("DB lock error: " . $conn->error, $conn->errno); if ($result_lock->num_rows === 0) { $result_lock->free_result(); throw new Exception("Voting code invalid."); } $locked_code_status = $result_lock->fetch_assoc(); $result_lock->free_result(); if (!empty($locked_code_status['is_used'])) throw new Exception("Voting code already used.");
             $sql_mark_used = "UPDATE voting_codes SET is_used = 1, used_at = NOW() WHERE id = $voting_code_db_id"; $update_result = $conn->query($sql_mark_used); if ($update_result === false || $conn->affected_rows !== 1) throw new Exception("Failed to update voting code status.");
-            foreach ($submitted_votes as $position_id => $candidate_id) { $position_id_int = filter_var($position_id, FILTER_VALIDATE_INT); $candidate_id_int = filter_var($candidate_id, FILTER_VALIDATE_INT); if ($position_id_int && $candidate_id_int && isset($positions[$position_id_int])) { $candidate_exists = false; foreach($positions[$position_id_int]['candidates'] as $c) { if ($c['id'] === $candidate_id_int) { $candidate_exists = true; break; } } if ($candidate_exists) { $sql_insert_vote = "INSERT INTO votes (election_id, position_id, candidate_id, voting_code_id) VALUES ($election_id, $position_id_int, $candidate_id_int, $voting_code_db_id)"; if ($conn->query($sql_insert_vote) === false) throw new Exception("Error saving vote for position ID $position_id_int."); } else { error_log("Vote Submit: Skipped invalid cand $candidate_id_int for pos $position_id_int."); } } else { error_log("Vote Submit: Skipped invalid pos $position_id or cand $candidate_id."); } }
+            $votesFullCols = votes_has_election_position_columns($conn);
+            foreach ($submitted_votes as $position_id => $candidate_id) {
+                $position_id_int = filter_var($position_id, FILTER_VALIDATE_INT);
+                $candidate_id_int = filter_var($candidate_id, FILTER_VALIDATE_INT);
+                if (!$position_id_int || !$candidate_id_int || !isset($positions[$position_id_int])) {
+                    error_log("Vote Submit: Skipped invalid pos $position_id or cand $candidate_id.");
+                    continue;
+                }
+                $candidate_exists = false;
+                foreach ($positions[$position_id_int]['candidates'] as $c) {
+                    if ($c['id'] === $candidate_id_int) {
+                        $candidate_exists = true;
+                        break;
+                    }
+                }
+                if (!$candidate_exists) {
+                    error_log("Vote Submit: Skipped invalid cand $candidate_id_int for pos $position_id_int.");
+                    continue;
+                }
+                if ($votesFullCols) {
+                    $sql_insert_vote = "INSERT INTO votes (election_id, position_id, candidate_id, voting_code_id) VALUES ($election_id, $position_id_int, $candidate_id_int, $voting_code_db_id)";
+                } else {
+                    $sql_insert_vote = "INSERT INTO votes (candidate_id, voting_code_id) VALUES ($candidate_id_int, $voting_code_db_id)";
+                }
+                if ($conn->query($sql_insert_vote) === false) {
+                    throw new Exception("Error saving vote for position ID $position_id_int.");
+                }
+            }
             if (!$conn->commit()) { $isInTransaction = false; throw new mysqli_sql_exception("Transaction commit failed: " . $conn->error, $conn->errno); } $isInTransaction = false;
       $vote_processed_successfully = true;
             if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') { header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success' => true]); exit(); }

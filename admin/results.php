@@ -19,6 +19,7 @@ date_default_timezone_set('Africa/Nairobi'); // EAT
 // --- Includes ---
 // require_once "includes/init.php"; // Include if needed
 require_once "../config/database.php"; // Provides $conn (mysqli object) - Adjust path if needed
+require_once "../config/votes_schema.php";
 require_once "includes/session.php"; // Provides isAdminLoggedIn() function - Adjust path if needed
 
 // --- Admin Authentication Check ---
@@ -194,16 +195,26 @@ if (!$results_error) { // Proceed only if no critical error yet
     try {
         $where_clauses_results = []; // For main results query WHERE
 
+        $votesFullCols = votes_has_election_position_columns($conn);
+        if ($votesFullCols) {
+            $voteCountExpr = 'COUNT(v.id)';
+            $voteJoinSql = 'LEFT JOIN votes v ON c.id = v.candidate_id AND v.position_id = p.id AND v.election_id = e.id';
+        } else {
+            $voteCountExpr = 'SUM(CASE WHEN vcscope.id IS NOT NULL THEN 1 ELSE 0 END)';
+            $voteJoinSql = 'LEFT JOIN votes v ON c.id = v.candidate_id
+        LEFT JOIN voting_codes vcscope ON vcscope.id = v.voting_code_id AND vcscope.election_id = e.id';
+        }
+
         // Base query starting from positions
         $results_sql = "SELECT
             e.id as election_id, COALESCE(e.title, 'Untitled Election') as election_title, e.status as election_status,
             p.id as position_id, COALESCE(p.title, 'Untitled Position') as position_title,
             c.id as candidate_id, COALESCE(c.name, 'N/A') as candidate_name, c.photo as candidate_photo,
-            COUNT(v.id) as vote_count
+            $voteCountExpr as vote_count
         FROM positions p
         INNER JOIN elections e ON p.election_id = e.id
         LEFT JOIN candidates c ON p.id = c.position_id -- Show positions even with no candidates
-        LEFT JOIN votes v ON c.id = v.candidate_id AND v.position_id = p.id AND v.election_id = e.id -- Join vote to candidate AND position AND election
+        $voteJoinSql
         ";
 
         // Apply filters (using validated integer IDs)

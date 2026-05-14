@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once "../config/database.php"; // Assumes $conn is a mysqli object
+require_once "../config/candidate_description_column.php";
 
 // --- Response Helper Function ---
 // Simplifies sending JSON responses and exiting
@@ -118,8 +119,9 @@ try {
 
     // --- Construct Conditional UPDATE SQL ---
     $update_sql = "UPDATE candidates SET ";
+    $textCol = candidate_text_column_name($conn);
     $update_sql .= "name = '$name_escaped', "; // Quote escaped string
-    $update_sql .= "description = '$description_escaped', "; // Quote escaped string
+    $update_sql .= "$textCol = '$description_escaped', "; // physical column: description or bio
     $update_sql .= "position_id = $position_id "; // Integer, no quotes
 
     // Only add the photo update part if a new photo was successfully uploaded
@@ -140,7 +142,7 @@ try {
     // Update successful (or no rows affected but query OK), now fetch updated data
 
     // --- Construct SELECT Query ---
-    $select_sql = "SELECT c.*, p.title as position_title, e.title as election_title
+    $select_sql = "SELECT c.*" . candidate_description_select_suffix($conn) . ", p.title as position_title, e.title as election_title
                    FROM candidates c
                    LEFT JOIN positions p ON c.position_id = p.id
                    LEFT JOIN elections e ON p.election_id = e.id

@@ -225,7 +225,10 @@ $pageTitle = "Live Election Results";
 
                 if (position.candidates && position.candidates.length > 0) {
                     position.candidates.forEach(candidate => {
-                        const photoPath = candidate.photo ? `../${helpers.escapeHtml(candidate.photo.replace(/^\//, ''))}` : 'assets/images/default-avatar.png';
+                        // Photo paths in DB are relative to site root (e.g. uploads/candidates/...).
+                        // live.php lives in the app root, so do NOT prefix ../ (that would break under /schoolvoting/).
+                        const rawPhoto = (candidate.photo || '').trim().replace(/^\//, '');
+                        const photoPath = rawPhoto ? helpers.escapeHtml(rawPhoto) : 'assets/images/default-avatar.png';
                         const winnerBadge = candidate.is_winner && position.total_votes > 0 ? '<span class="candidate-winner-badge"><i class="bi bi-check-circle-fill"></i> WINNER</span>' : '';
                         const percentage = candidate.percentage ?? 0;
                         const voteText = candidate.vote_count === 1 ? 'vote' : 'votes';

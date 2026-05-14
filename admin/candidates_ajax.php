@@ -9,6 +9,7 @@ header('Content-Type: application/json');
 // Include required files
 require_once __DIR__ . '/includes/init.php';
 require_once __DIR__ . '/includes/database.php';
+require_once __DIR__ . '/../config/candidate_description_column.php';
 require_once __DIR__ . '/includes/session.php';
 
 // Function to send JSON response
@@ -62,8 +63,10 @@ try {
                     $offset = ($page - 1) * $records_per_page;
 
                     // Build base query
-                    $query = "SELECT c.*, p.title as position_title, e.title as election_title, 
-                             (SELECT COUNT(*) FROM votes WHERE candidate_id = c.id) as vote_count 
+                    $selectList = 'c.*' . candidate_description_select_suffix($conn)
+                        . ', p.title as position_title, e.title as election_title, '
+                        . '(SELECT COUNT(*) FROM votes WHERE candidate_id = c.id) as vote_count';
+                    $query = "SELECT $selectList 
                              FROM candidates c 
                              LEFT JOIN positions p ON c.position_id = p.id 
                              LEFT JOIN elections e ON p.election_id = e.id 
@@ -81,7 +84,7 @@ try {
                     }
 
                     // Prepare count query by replacing the SELECT clause
-                    $count_query = str_replace("c.*, p.title as position_title, e.title as election_title, (SELECT COUNT(*) FROM votes WHERE candidate_id = c.id) as vote_count", "COUNT(*)", $query);
+                    $count_query = str_replace($selectList, "COUNT(*)", $query);
 
                     $resultCount = mysqli_query($conn, $count_query);
                     if (!$resultCount) {

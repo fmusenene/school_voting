@@ -23,6 +23,7 @@ if (!function_exists('send_json_response')) {
 
 // --- Includes (Corrected Paths relative to project root) ---
 require_once "config/database.php"; // Assumes config folder is directly under project root
+require_once "config/votes_schema.php";
  
 // --- Pre-Checks ---
 if (!$conn || $conn->connect_error) {
@@ -56,15 +57,25 @@ try {
 
     $active_election_id = (int)$election_data['id'];
 
+    $votesFullCols = votes_has_election_position_columns($conn);
+    if ($votesFullCols) {
+        $voteJoinSql = "LEFT JOIN votes v ON c.id = v.candidate_id AND p.id = v.position_id AND v.election_id = $active_election_id";
+        $voteCountExpr = 'COUNT(DISTINCT v.id)';
+    } else {
+        $voteJoinSql = "LEFT JOIN votes v ON c.id = v.candidate_id
+                        LEFT JOIN voting_codes vcscope ON vcscope.id = v.voting_code_id AND vcscope.election_id = $active_election_id";
+        $voteCountExpr = 'SUM(CASE WHEN vcscope.id IS NOT NULL THEN 1 ELSE 0 END)';
+    }
+
     // 2. Fetch positions, candidates, and vote counts (Optimized Query)
     $positions_output = []; // Initialize array to store results grouped by position
     $positions_candidates_sql = "SELECT
                                     p.id as position_id, p.title as position_title,
                                     c.id as candidate_id, c.name as candidate_name, c.photo as candidate_photo,
-                                    COUNT(DISTINCT v.id) as vote_count
+                                    $voteCountExpr as vote_count
                                  FROM positions p
                                  LEFT JOIN candidates c ON p.id = c.position_id
-                                 LEFT JOIN votes v ON c.id = v.candidate_id AND p.id = v.position_id AND v.election_id = $active_election_id
+                                 $voteJoinSql
                                  WHERE p.election_id = $active_election_id
                                  GROUP BY p.id, c.id
                                  ORDER BY p.id ASC, vote_count DESC, c.name ASC";

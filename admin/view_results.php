@@ -8,6 +8,7 @@ ini_set('display_errors', 1); // Dev
 date_default_timezone_set('Africa/Nairobi'); // EAT
 
 require_once "../config/database.php"; // Provides $conn (mysqli connection)
+require_once "../config/votes_schema.php";
 require_once "includes/session.php"; // Provides isAdminLoggedIn()
 
 // --- Security: Admin Check ---
@@ -65,9 +66,15 @@ if (!$conn || $conn->connect_error) {
             $position_id = (int)$position['id']; // Ensure integer
             $candidates = [];
 
+            if (votes_has_election_position_columns($conn)) {
+                $voteCountSub = "(SELECT COUNT(*) FROM votes WHERE candidate_id = c.id AND position_id = $position_id)";
+            } else {
+                $voteCountSub = "(SELECT COUNT(*) FROM votes v INNER JOIN voting_codes vc ON vc.id = v.voting_code_id AND vc.election_id = $election_id WHERE v.candidate_id = c.id)";
+            }
+
             // Get candidates and their vote counts for this position using subquery
             $candidates_sql = "SELECT c.id, c.name, c.photo,
-                                   (SELECT COUNT(*) FROM votes WHERE candidate_id = c.id AND position_id = $position_id) as vote_count
+                                   $voteCountSub as vote_count
                                FROM candidates c
                                WHERE c.position_id = $position_id
                                ORDER BY vote_count DESC, c.name ASC"; // Added name sort for ties

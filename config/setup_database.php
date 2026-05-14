@@ -51,7 +51,7 @@ try {
         position_id INT NOT NULL,
         name VARCHAR(100) NOT NULL,
         photo VARCHAR(255),
-        bio TEXT,
+        description TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (position_id) REFERENCES positions(id) ON DELETE CASCADE
     )";
@@ -69,12 +69,16 @@ try {
     )";
     $pdo->exec($sql);
     
-    // Create votes table
+    // Create votes table (match install.php / vote.php: one row per position choice)
     $sql = "CREATE TABLE IF NOT EXISTS votes (
         id INT PRIMARY KEY AUTO_INCREMENT,
+        election_id INT NOT NULL,
+        position_id INT NOT NULL,
         candidate_id INT NOT NULL,
         voting_code_id INT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (election_id) REFERENCES elections(id) ON DELETE CASCADE,
+        FOREIGN KEY (position_id) REFERENCES positions(id) ON DELETE CASCADE,
         FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
         FOREIGN KEY (voting_code_id) REFERENCES voting_codes(id) ON DELETE CASCADE
     )";
