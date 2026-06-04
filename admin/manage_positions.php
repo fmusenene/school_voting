@@ -134,7 +134,7 @@ try {
     }
 
     // Get current positions for this election
-    $positions_sql = "SELECT id, title, description FROM positions WHERE election_id = $election_id ORDER BY title ASC";
+    $positions_sql = "SELECT id, title, description FROM positions WHERE election_id = $election_id ORDER BY id ASC";
     $positions_result = mysqli_query($conn, $positions_sql);
     if ($positions_result) {
         while ($row = mysqli_fetch_assoc($positions_result)) {

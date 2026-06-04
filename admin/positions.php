@@ -54,7 +54,7 @@ if ($selected_election !== 'all') {
     // Since $selected_election is an integer, we can directly insert it
     $sql_positions .= " WHERE p.election_id = " . intval($selected_election);
 }
-$sql_positions .= " ORDER BY e.start_date DESC, p.title ASC";
+$sql_positions .= " ORDER BY e.start_date DESC, p.id ASC";
 
 $result_positions = mysqli_query($conn, $sql_positions);
 if ($result_positions) {

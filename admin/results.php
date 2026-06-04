@@ -94,7 +94,7 @@ if (!$results_error) { // Proceed only if no critical error yet
         }
 
         // Fetch All Positions
-        $positions_sql = "SELECT id, election_id, title FROM positions ORDER BY title ASC";
+        $positions_sql = "SELECT id, election_id, title FROM positions ORDER BY election_id ASC, id ASC";
         $result_p = $conn->query($positions_sql);
         if ($result_p === false) throw new mysqli_sql_exception("Error fetching all positions: " . $conn->error, $conn->errno);
         while ($row = $result_p->fetch_assoc()) { $all_positions[] = $row; }
@@ -247,8 +247,8 @@ if (!$results_error) { // Proceed only if no critical error yet
         // Group by all non-aggregated columns to get vote count per candidate (or show candidate with 0)
         $results_sql .= " GROUP BY e.id, p.id, c.id "; // Grouping by election, position, AND candidate
 
-        // Order by position title so results are not stuck on the lowest position id (e.g. Head Prefect only on page 1)
-        $results_sql .= " ORDER BY e.created_at DESC, p.title ASC, vote_count DESC, c.name ASC";
+        // Order positions by when they were added (id), not alphabetically
+        $results_sql .= " ORDER BY e.created_at DESC, p.id ASC, vote_count DESC, c.name ASC";
 
         // Execute main results query
         $results_res = $conn->query($results_sql);

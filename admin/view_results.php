@@ -54,7 +54,7 @@ if (!$conn || $conn->connect_error) {
         mysqli_free_result($election_result);
 
         // Get positions for this election
-        $positions_sql = "SELECT id, title FROM positions WHERE election_id = $election_id ORDER BY title ASC";
+        $positions_sql = "SELECT id, title FROM positions WHERE election_id = $election_id ORDER BY id ASC";
         $positions_result = mysqli_query($conn, $positions_sql);
 
         if ($positions_result === false) {
