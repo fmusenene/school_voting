@@ -9,6 +9,7 @@ date_default_timezone_set('Africa/Nairobi'); // EAT
 
 require_once "../config/database.php"; // Provides $conn (mysqli connection)
 require_once "../config/candidate_description_column.php";
+require_once "../config/candidate_photo_upload.php";
 require_once "includes/session.php"; // Provides isAdminLoggedIn() - Ensure this is correct path
 
 // --- Helper Function: Send JSON Response ---
@@ -20,51 +21,6 @@ function send_json_response($success, $data = null, $message = null, $data_key =
     if (!$success && http_response_code() === 200) { http_response_code(400); }
     echo json_encode($response); exit();
 }
-
-// --- Helper Function: Handle File Upload ---
-// (Same as defined previously, ensure it's included or defined here)
-function handleFileUpload($file_input_name) {
-    if (!isset($_FILES[$file_input_name]) || $_FILES[$file_input_name]['error'] === UPLOAD_ERR_NO_FILE) return '';
-    $file = $_FILES[$file_input_name];
-    if ($file['error'] !== UPLOAD_ERR_OK) throw new Exception('File upload error: Code ' . $file['error']);
-    if ($file['size'] > 5 * 1024 * 1024) throw new Exception('File too large (Max 5MB).');
-
-    $project_root = dirname(__DIR__);
-    $upload_dir_absolute = $project_root . '/uploads/candidates/';
-    $upload_path_relative_for_db = 'uploads/candidates/';
-
-    if (!is_dir($upload_dir_absolute)) { if (!mkdir($upload_dir_absolute, 0775, true)) throw new Exception('Failed to create upload directory.'); }
-    if (!is_writable($upload_dir_absolute)) throw new Exception('Upload directory not writable.');
-
-    $file_info = pathinfo($file['name']);
-    $file_extension = strtolower($file_info['extension'] ?? '');
-    $allowed_extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
-    if (!in_array($file_extension, $allowed_extensions)) throw new Exception('Invalid file type.');
-
-    $new_filename = uniqid('cand_', true) . '.' . $file_extension;
-    $target_path_absolute = $upload_dir_absolute . $new_filename;
-
-    if (move_uploaded_file($file['tmp_name'], $target_path_absolute)) {
-        return $upload_path_relative_for_db . $new_filename;
-    } else { throw new Exception('Failed to move uploaded file.'); }
-}
-
-// --- Helper Function: Delete Photo File ---
-// (Same as defined previously, ensure it's included or defined here)
-function deletePhotoFile($relative_photo_path) {
-     if (empty($relative_photo_path)) return false;
-     $project_root = dirname(__DIR__);
-     $absolute_path = $project_root . '/' . ltrim($relative_photo_path, '/');
-     // Basic path check
-     if (strpos(realpath($absolute_path), realpath($project_root . '/uploads/candidates')) !== 0) {
-         error_log("Attempt to delete invalid file path: " . $absolute_path); return false;
-     }
-     if (file_exists($absolute_path) && is_file($absolute_path)) {
-         if (!unlink($absolute_path)) { error_log("Failed to delete file: " . $absolute_path); return false; }
-         return true;
-     } return false;
-}
-
 
 // --- Main Endpoint Logic ---
 

@@ -2,6 +2,7 @@
 session_start();
 require_once "../config/database.php"; // Assumes $conn is a mysqli object
 require_once "../config/candidate_description_column.php";
+require_once "../config/candidate_photo_upload.php";
 
 // --- Response Helper Function ---
 // Simplifies sending JSON responses and exiting
@@ -20,56 +21,6 @@ function send_json_response($success, $data = null, $message = null, $data_key =
     }
     echo json_encode($response);
     exit();
-}
-
-// --- File Upload Handler ---
-// (Largely unchanged, but ensure it throws Exceptions on failure)
-function handleFileUpload($file) {
-    if (!$file || $file['error'] !== UPLOAD_ERR_OK) {
-        // Handle cases like no file uploaded gracefully if optional
-        if ($file['error'] === UPLOAD_ERR_NO_FILE) {
-            return ''; // No file uploaded, return empty path
-        }
-        // Throw exception for other upload errors
-        throw new Exception('File upload error: Code ' . $file['error']);
-    }
-
-    // Basic security check for file size (example: 5MB limit)
-    if ($file['size'] > 5 * 1024 * 1024) {
-        throw new Exception('File is too large. Maximum size allowed is 5MB.');
-    }
-
-    $upload_dir = "../uploads/candidates/"; // Relative path from this script's location
-    // Ensure the upload directory exists and is writable
-    if (!file_exists($upload_dir)) {
-        if (!mkdir($upload_dir, 0775, true)) { // Use 0775 for better security than 0777
-             throw new Exception('Failed to create upload directory.');
-        }
-    }
-    if (!is_writable($upload_dir)) {
-        throw new Exception('Upload directory is not writable.');
-    }
-
-
-    $file_extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-    $allowed_extensions = ['jpg', 'jpeg', 'png', 'gif'];
-
-    if (!in_array($file_extension, $allowed_extensions)) {
-        throw new Exception('Invalid file type. Only JPG, JPEG, PNG, and GIF are allowed.');
-    }
-
-    // Generate a unique filename to prevent overwrites and potential security issues
-    $new_filename = uniqid('candidate_', true) . '.' . $file_extension; // More unique prefix
-    $target_path = $upload_dir . $new_filename;
-
-    // Use move_uploaded_file
-    if (move_uploaded_file($file['tmp_name'], $target_path)) {
-        // Return the path relative to the web root for storage in DB
-        return 'uploads/candidates/' . $new_filename;
-    }
-
-    // If move_uploaded_file fails
-    throw new Exception('Failed to move uploaded file.');
 }
 
 // --- Main Script Logic ---
@@ -107,7 +58,7 @@ try {
     // This will throw an exception on upload error, caught by the main catch block
     $photo_path = ''; // Initialize photo path
     if (isset($_FILES['photo']) && $_FILES['photo']['error'] !== UPLOAD_ERR_NO_FILE) {
-         $photo_path = handleFileUpload($_FILES['photo']);
+         $photo_path = handle_candidate_photo_upload($_FILES['photo']);
     }
 
 

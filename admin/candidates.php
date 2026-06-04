@@ -18,6 +18,7 @@ date_default_timezone_set('Africa/Nairobi'); // EAT Timezone
 require_once "../config/database.php"; // Provides $conn (mysqli connection)
 require_once "../config/candidate_description_column.php";
 require_once "../config/candidate_class_section.php";
+require_once "../config/candidate_photo_upload.php";
 require_once "includes/session.php"; // Provides isAdminLoggedIn()
 
 // Check if DB connection is valid early
@@ -73,82 +74,6 @@ function send_json_response($success, $data = null, $message = null, $data_key =
     echo json_encode($response);
     exit(); // IMPORTANT: Always exit after sending JSON for AJAX handlers
 }
-
-// --- Helper Function: Handle File Upload ---
-// Returns the database-storable path on success, empty string if no file, throws Exception on error.
-function handleFileUpload($file_input_name) {
-    if (!isset($_FILES[$file_input_name]) || $_FILES[$file_input_name]['error'] === UPLOAD_ERR_NO_FILE) {
-        return ''; // No file uploaded or field not present
-    }
-
-    $file = $_FILES[$file_input_name];
-
-    if ($file['error'] !== UPLOAD_ERR_OK) {
-        throw new Exception('File upload error: Code ' . $file['error']);
-    }
-
-    if ($file['size'] > 5 * 1024 * 1024) { // 5MB limit
-        throw new Exception('File is too large. Maximum size allowed is 5MB.');
-    }
-
-    // Use __DIR__ for reliable base path calculation
-    // Assumes 'admin' folder is one level below project root where 'uploads' exists
-    $project_root = dirname(__DIR__); // Directory containing 'admin' and 'uploads'
-    $upload_dir_absolute = $project_root . '/uploads/candidates/';
-    $upload_path_relative_for_db = 'uploads/candidates/'; // Path to store in DB
-
-    if (!is_dir($upload_dir_absolute)) {
-        if (!mkdir($upload_dir_absolute, 0775, true)) {
-            throw new Exception('Failed to create upload directory. Check permissions.');
-        }
-    }
-    if (!is_writable($upload_dir_absolute)) {
-        throw new Exception('Upload directory is not writable.');
-    }
-
-    $file_info = pathinfo($file['name']);
-    $file_extension = strtolower($file_info['extension'] ?? '');
-    $allowed_extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
-
-    if (!in_array($file_extension, $allowed_extensions)) {
-        throw new Exception('Invalid file type. Only JPG, JPEG, PNG, GIF, WEBP are allowed.');
-    }
-
-    // Prevent path traversal and sanitize filename (though uniqid is better)
-    $base_name = preg_replace("/[^a-zA-Z0-9\s_-]/", "", $file_info['filename']); // Basic sanitize
-    $new_filename = uniqid('cand_', true) . '.' . $file_extension;
-    $target_path_absolute = $upload_dir_absolute . $new_filename;
-
-    if (move_uploaded_file($file['tmp_name'], $target_path_absolute)) {
-        return $upload_path_relative_for_db . $new_filename;
-    } else {
-        throw new Exception('Failed to move uploaded file. Check server logs.');
-    }
-}
-
-// --- Helper Function: Delete Photo File ---
-function deletePhotoFile($relative_photo_path) {
-     if (empty($relative_photo_path)) return false;
-     // Construct absolute path reliably using __DIR__
-     $project_root = dirname(__DIR__);
-     $absolute_path = $project_root . '/' . ltrim($relative_photo_path, '/');
-
-     // Security check: Ensure path stays within the intended directory (simple check)
-     if (strpos(realpath($absolute_path), realpath($project_root . '/uploads/candidates')) !== 0) {
-         error_log("Attempt to delete file outside designated directory: " . $absolute_path);
-         return false; // Path traversal attempt or invalid path structure
-     }
-
-     if (file_exists($absolute_path) && is_file($absolute_path)) {
-         if (!unlink($absolute_path)) {
-             error_log("Failed to delete candidate photo file: " . $absolute_path);
-             return false; // Failed to delete
-         }
-         return true; // Successfully deleted
-     }
-     return false; // File doesn't exist or is not a file
-}
-
 
 // --- START AJAX ACTION HANDLING ---
 // Check for specific 'action' parameter (use $_REQUEST to catch GET/POST)
@@ -909,8 +834,8 @@ require_once "includes/header.php"; // Assumes this outputs <!DOCTYPE html> etc.
                          <div class="col-md-4 text-center">
                              <label for="add_photo" class="form-label d-block mb-1">Photo</label>
                              <img id="add_photoPreview" src="assets/images/default-avatar.png" alt="Photo Preview" class="img-thumbnail mb-2" style="height: 150px; width: 150px; object-fit: cover;">
-                             <input type="file" class="form-control form-control-sm" id="add_photo" name="photo" accept="image/jpeg, image/png, image/gif, image/webp">
-                             <small class="form-text text-muted d-block mt-1">Max 5MB. JPG, PNG, GIF, WEBP.</small>
+                             <input type="file" class="form-control form-control-sm" id="add_photo" name="photo" accept="<?php echo htmlspecialchars(candidate_photo_accept_attribute(), ENT_QUOTES, 'UTF-8'); ?>">
+                             <small class="form-text text-muted d-block mt-1">Max <?php echo htmlspecialchars(candidate_photo_max_size_label(), ENT_QUOTES, 'UTF-8'); ?>. <?php echo htmlspecialchars(candidate_photo_formats_label(), ENT_QUOTES, 'UTF-8'); ?>.</small>
                          </div>
                     </div>
                 </div>
@@ -980,8 +905,8 @@ require_once "includes/header.php"; // Assumes this outputs <!DOCTYPE html> etc.
                                   <label class="form-label d-block mb-1">Current Photo</label>
                                   <img id="edit_photoPreview" src="assets/images/default-avatar.png" alt="Current Photo" class="img-thumbnail mb-2" style="height: 150px; width: 150px; object-fit: cover;">
                                   <label for="edit_photo" class="form-label">Change Photo (Optional)</label>
-                                  <input type="file" class="form-control form-control-sm" id="edit_photo" name="photo" accept="image/jpeg, image/png, image/gif, image/webp">
-                                  <small class="form-text text-muted d-block mt-1">Leave empty to keep current photo. Max 5MB.</small>
+                                  <input type="file" class="form-control form-control-sm" id="edit_photo" name="photo" accept="<?php echo htmlspecialchars(candidate_photo_accept_attribute(), ENT_QUOTES, 'UTF-8'); ?>">
+                                  <small class="form-text text-muted d-block mt-1">Leave empty to keep current photo. Max <?php echo htmlspecialchars(candidate_photo_max_size_label(), ENT_QUOTES, 'UTF-8'); ?>.</small>
                              </div>
                         </div>
                     </div>
@@ -1107,6 +1032,36 @@ document.addEventListener('DOMContentLoaded', function () {
     const editPhotoPreview = document.getElementById('edit_photoPreview');
     const editModalLoading = document.getElementById('editModalLoading');
     const editModalFormContent = document.getElementById('editModalFormContent');
+
+    const candidatePhotoAllowedExtensions = <?php echo json_encode(candidate_photo_allowed_extensions(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+    const candidatePhotoMaxBytes = <?php echo (int) candidate_photo_max_upload_bytes(); ?>;
+
+    function candidatePhotoExtension(file) {
+        const name = file?.name || '';
+        const i = name.lastIndexOf('.');
+        return i >= 0 ? name.slice(i + 1).toLowerCase() : '';
+    }
+
+    function isAllowedCandidatePhotoFile(file) {
+        if (!file) return false;
+        const type = (file.type || '').toLowerCase();
+        const ext = candidatePhotoExtension(file);
+        if (type.startsWith('image/')) return true;
+        if (['image/heic', 'image/heif'].includes(type)) return true;
+        if (candidatePhotoAllowedExtensions.includes(ext)) return true;
+        if (type === '' || type === 'application/octet-stream') {
+            return candidatePhotoAllowedExtensions.includes(ext);
+        }
+        return false;
+    }
+
+    function canPreviewCandidatePhotoInBrowser(file) {
+        const type = (file.type || '').toLowerCase();
+        const ext = candidatePhotoExtension(file);
+        if (['heic', 'heif'].includes(ext)) return false;
+        if (type === 'image/heic' || type === 'image/heif') return false;
+        return type.startsWith('image/');
+    }
 
     // --- CountUp Animations ---
     if (typeof CountUp === 'function') {
@@ -1235,21 +1190,37 @@ document.addEventListener('DOMContentLoaded', function () {
         if(inputEl && previewEl) {
             inputEl.addEventListener('change', function(event) {
                 const file = event.target.files[0];
-                if (file && file.type.startsWith('image/')) {
+                if (!file) {
+                    previewEl.src = 'assets/images/default-avatar.png';
+                    previewEl.style.display = 'block';
+                    return;
+                }
+
+                if (file.size > candidatePhotoMaxBytes) {
+                    previewEl.src = 'assets/images/default-avatar.png';
+                    showNotification('File is too large. Maximum size is <?php echo htmlspecialchars(candidate_photo_max_size_label(), ENT_QUOTES, 'UTF-8'); ?>.', 'warning');
+                    inputEl.value = '';
+                    return;
+                }
+
+                if (!isAllowedCandidatePhotoFile(file)) {
+                    previewEl.src = 'assets/images/default-avatar.png';
+                    previewEl.style.display = 'block';
+                    showNotification('Invalid file type selected. Please choose an image (JPG, PNG, HEIC, etc.).', 'warning');
+                    inputEl.value = '';
+                    return;
+                }
+
+                if (canPreviewCandidatePhotoInBrowser(file)) {
                     const reader = new FileReader();
                     reader.onload = function(e) {
                         previewEl.src = e.target.result;
                         previewEl.style.display = 'block';
-                    }
+                    };
                     reader.readAsDataURL(file);
                 } else {
-                     // Reset to default if no file or invalid file selected
-                     previewEl.src = 'assets/images/default-avatar.png';
-                     previewEl.style.display = 'block'; // Ensure preview area is visible
-                     if (file) { // If a file was selected but invalid
-                           showNotification('Invalid file type selected. Please choose an image.', 'warning');
-                           inputEl.value = ''; // Clear the invalid file selection
-                     }
+                    previewEl.src = 'assets/images/default-avatar.png';
+                    previewEl.style.display = 'block';
                 }
             });
         }
