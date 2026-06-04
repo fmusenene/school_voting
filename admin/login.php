@@ -1,8 +1,6 @@
 <?php
-// Start session **before** any output
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+require_once __DIR__ . "/includes/session.php";
+sendNoCacheHeaders();
 
 // Establish database connection ($conn) - ASSUMING $conn is a mysqli object now
 require_once "../config/database.php";

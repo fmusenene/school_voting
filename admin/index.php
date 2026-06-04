@@ -1,12 +1,7 @@
 <?php
-session_start();
+require_once "includes/session.php";
+requireAdminLogin();
 require_once "../config/database.php";
-
-// Check if admin is logged in
-if (!isset($_SESSION['admin_id'])) {
-    header("Location: /admin/login.php");
-    exit();
-}
 
 require_once "includes/header.php";
 

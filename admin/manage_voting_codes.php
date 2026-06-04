@@ -1,12 +1,7 @@
 <?php
+require_once "includes/session.php";
+requireAdminLogin();
 require_once "../config/database.php";
-session_start();
-
-// Check if admin is logged in
-if (!isset($_SESSION['admin_id'])) {
-    header("location: login.php");
-    exit();
-}
 
 // Get election ID from URL
 $election_id = isset($_GET['election_id']) ? (int)$_GET['election_id'] : 0;

@@ -1,15 +1,9 @@
 <?php
-session_start();
+require_once "includes/session.php";
+requireAdminLogin();
 require_once "../config/database.php";
 // NOTE: Includes header.php *after* data fetching and PHP logic
 // require_once "includes/header.php"; // Moved down
-
-// Check if admin is logged in
-if (!isset($_SESSION['admin_id'])) {
-    // Redirect before any output
-    header("Location: /school_voting/admin/login.php");
-    exit();
-}
 
 // Function to generate unique voting codes
 function generateVotingCode()

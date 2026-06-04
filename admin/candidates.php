@@ -17,6 +17,7 @@ date_default_timezone_set('Africa/Nairobi'); // EAT Timezone
 // Include base dependencies AFTER potential session start
 require_once "../config/database.php"; // Provides $conn (mysqli connection)
 require_once "../config/candidate_description_column.php";
+require_once "../config/candidate_class_section.php";
 require_once "includes/session.php"; // Provides isAdminLoggedIn()
 
 // Check if DB connection is valid early
@@ -32,6 +33,8 @@ if (!$conn || $conn->connect_error) {
          die("Database connection failed. Please check configuration or contact support.");
     }
 }
+
+ensure_candidate_class_section_column($conn);
 
 // --- Security: Admin Check ---
 // Perform this check early, especially before handling POST/GET actions
@@ -195,6 +198,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $action === 'create') {
         $name = trim($_POST['name'] ?? '');
         $position_id = filter_input(INPUT_POST, 'position_id', FILTER_VALIDATE_INT);
         $description = trim($_POST['description'] ?? '');
+        $class_section = trim($_POST['class_section'] ?? '');
 
         if (empty($name) || !$position_id || $position_id <= 0) {
             throw new Exception("Name and a valid Position are required.");
@@ -206,6 +210,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $action === 'create') {
         // Database Insertion
         $nameEsc = mysqli_real_escape_string($conn, $name);
         $descriptionEsc = mysqli_real_escape_string($conn, $description);
+        $classSectionEsc = mysqli_real_escape_string($conn, $class_section);
 
         if (!empty($photo_path_db)) {
             $photo_value = "'" . mysqli_real_escape_string($conn, $photo_path_db) . "'";
@@ -214,8 +219,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $action === 'create') {
         }
 
         $textCol = candidate_text_column_name($conn);
-        $sql = "INSERT INTO candidates (name, position_id, $textCol, photo)
-                VALUES ('$nameEsc', $position_id, '$descriptionEsc', $photo_value)";
+        $sql = "INSERT INTO candidates (name, class_section, position_id, $textCol, photo)
+                VALUES ('$nameEsc', '$classSectionEsc', $position_id, '$descriptionEsc', $photo_value)";
 
         if (mysqli_query($conn, $sql)) {
             // Optionally fetch the newly created candidate data to return? For now, just success.
@@ -245,6 +250,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $action === 'edit') {
         $name = trim($_POST['name'] ?? '');
         $position_id = filter_input(INPUT_POST, 'position_id', FILTER_VALIDATE_INT);
         $description = trim($_POST['description'] ?? '');
+        $class_section = trim($_POST['class_section'] ?? '');
 
         if ($candidate_id_edit <= 0 || empty($name) || !$position_id || $position_id <= 0) {
             throw new Exception("Missing or invalid required fields (Candidate ID, Name, Position ID).");
@@ -268,11 +274,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $action === 'edit') {
         // Sanitize/Escape Data for SQL
         $name_escaped = mysqli_real_escape_string($conn, $name);
         $description_escaped = mysqli_real_escape_string($conn, $description);
+        $class_section_escaped = mysqli_real_escape_string($conn, $class_section);
 
         // Construct Conditional UPDATE SQL
         $textCol = candidate_text_column_name($conn);
         $sql = "UPDATE candidates SET ";
         $sql .= "name = '$name_escaped', ";
+        $sql .= "class_section = '$class_section_escaped', ";
         $sql .= "$textCol = '$description_escaped', ";
         $sql .= "position_id = $position_id ";
 
@@ -503,7 +511,7 @@ try {
 
     // Fetch Main Candidate List based on filters
     $descExpr = candidate_description_select_expr($conn);
-    $sql_candidates = "SELECT c.id, c.name, $descExpr, c.photo, c.position_id,
+    $sql_candidates = "SELECT c.id, c.name, COALESCE(c.class_section, '') AS class_section, $descExpr, c.photo, c.position_id,
                            p.title as position_title, p.election_id, e.title as election_title
                        FROM candidates c
                        LEFT JOIN positions p ON c.position_id = p.id
@@ -792,6 +800,11 @@ require_once "includes/header.php"; // Assumes this outputs <!DOCTYPE html> etc.
                                         </td>
                                         <td>
                                             <span class="candidate-name"><?php echo htmlspecialchars($candidate['name']); ?></span>
+                                            <?php if (!empty($candidate['class_section'])): ?>
+                                            <small class="position-details d-block text-muted">
+                                                (<?php echo htmlspecialchars($candidate['class_section']); ?>)
+                                            </small>
+                                            <?php endif; ?>
                                             <?php if(!empty($candidate['description'])): ?>
                                             <small class="position-details d-block text-muted" title="<?php echo htmlspecialchars($candidate['description']); ?>">
                                                 <?php echo htmlspecialchars($candidate['description']); ?>
@@ -865,6 +878,11 @@ require_once "includes/header.php"; // Assumes this outputs <!DOCTYPE html> etc.
                                  <div class="invalid-feedback">Please enter the candidate's name.</div>
                             </div>
                             <div class="mb-3">
+                                 <label for="add_class_section" class="form-label">Class / Section</label>
+                                 <input type="text" class="form-control" id="add_class_section" name="class_section" maxlength="50" placeholder="e.g. S.2 K">
+                                 <small class="form-text text-muted">Shown on results under the candidate name.</small>
+                            </div>
+                            <div class="mb-3">
                                  <label for="add_position_id" class="form-label">Position*</label>
                                  <select class="form-select" id="add_position_id" name="position_id" required <?php echo empty($positions_for_filter) ? 'disabled' : ''; ?>>
                                      <option value="" selected disabled>-- Select Position --</option>
@@ -933,6 +951,10 @@ require_once "includes/header.php"; // Assumes this outputs <!DOCTYPE html> etc.
                                      <label for="edit_name" class="form-label">Candidate Name*</label>
                                      <input type="text" class="form-control" id="edit_name" name="name" required maxlength="100">
                                      <div class="invalid-feedback">Name is required.</div>
+                                </div>
+                                <div class="mb-3">
+                                     <label for="edit_class_section" class="form-label">Class / Section</label>
+                                     <input type="text" class="form-control" id="edit_class_section" name="class_section" maxlength="50" placeholder="e.g. S.3 X">
                                 </div>
                                 <div class="mb-3">
                                      <label for="edit_position_id" class="form-label">Position*</label>
@@ -1314,6 +1336,7 @@ document.addEventListener('DOMContentLoaded', function () {
                  // Populate form fields
                  document.getElementById('edit_candidate_id').value = cand.id;
                  document.getElementById('edit_name').value = cand.name;
+                 document.getElementById('edit_class_section').value = cand.class_section || '';
                  document.getElementById('edit_position_id').value = cand.position_id; // Set selected option
                  document.getElementById('edit_description').value = cand.description || '';
                  // Update photo preview

@@ -1,15 +1,6 @@
 <?php
-// Session should be started before this file is included by the parent page
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-// Check if user is logged in - Essential security check
-if (!isset($_SESSION['admin_id'], $_SESSION['admin_username'])) {
-    session_unset(); session_destroy();
-    header("Location: login.php");
-    exit();
-}
+require_once __DIR__ . "/session.php";
+requireAdminLogin();
 
 // Generate CSP nonce if available in session
 $nonce = isset($_SESSION['csp_nonce']) ? htmlspecialchars($_SESSION['csp_nonce'], ENT_QUOTES, 'UTF-8') : '';
@@ -32,6 +23,13 @@ $current_page = basename($_SERVER['PHP_SELF']);
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <script nonce="<?php echo $nonce; ?>">
+        window.addEventListener('pageshow', function(event) {
+            if (event.persisted) {
+                window.location.reload();
+            }
+        });
+    </script>
 
     <style nonce="<?php echo $nonce; ?>">
         :root {
