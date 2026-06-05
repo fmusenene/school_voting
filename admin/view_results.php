@@ -9,6 +9,7 @@ date_default_timezone_set('Africa/Nairobi'); // EAT
 
 require_once "../config/database.php"; // Provides $conn (mysqli connection)
 require_once "../config/votes_schema.php";
+require_once "../config/candidate_class_section.php";
 require_once "includes/session.php"; // Provides isAdminLoggedIn()
 
 // --- Security: Admin Check ---
@@ -36,6 +37,7 @@ if (!$conn || $conn->connect_error) {
     $page_error = "Database connection failed: " . ($conn ? $conn->connect_error : 'Unknown error');
     error_log($page_error); // Log the detailed error
 } else {
+    ensure_candidate_class_section_column($conn);
     try {
         // Get election details
         $election_sql = "SELECT id, title, status FROM elections WHERE id = $election_id"; // Embed integer ID
@@ -74,6 +76,7 @@ if (!$conn || $conn->connect_error) {
 
             // Get candidates and their vote counts for this position using subquery
             $candidates_sql = "SELECT c.id, c.name, c.photo,
+                                   " . candidate_class_section_select_expr($conn, 'c') . ",
                                    $voteCountSub as vote_count
                                FROM candidates c
                                WHERE c.position_id = $position_id
@@ -161,6 +164,7 @@ require_once "includes/header.php";
     .candidate-photo { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; margin-right: 1rem; border: 2px solid var(--border-color); }
     .candidate-photo-default { background-color: var(--secondary-color); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; } /* For default icon */
     .candidate-name { font-size: 1.1rem; font-weight: 600; color: var(--dark-color); margin: 0; }
+    .candidate-class-section { font-size: 0.9rem; font-weight: 500; color: var(--secondary-color); margin-left: 0.35rem; }
     .candidate-votes { font-size: 1.5rem; font-weight: 700; color: var(--blue-progress); margin: 0.25rem 0; }
     .candidate-percentage { font-size: 0.9rem; color: var(--secondary-color); margin-left: 0.5rem;}
     .progress { height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden; margin-top: 0.5rem; }
@@ -238,6 +242,7 @@ require_once "includes/header.php";
                                 <div>
                                     <h4 class="candidate-name mb-0">
                                         <?php echo htmlspecialchars($candidate['name']); ?>
+                                        <?php echo candidate_class_section_display_html($candidate['class_section'] ?? ''); ?>
                                         <?php if ($is_winner && $total_votes > 0): // Show winner badge only if votes exist ?>
                                             <span class="winner-badge">Winner</span>
                                         <?php endif; ?>

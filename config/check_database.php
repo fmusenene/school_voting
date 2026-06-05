@@ -1,5 +1,8 @@
 <?php
 require_once "database.php";
+require_once "candidate_class_section.php";
+
+ensure_candidate_class_section_column($conn);
 
 // Handle deletion of selected codes
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -222,6 +225,7 @@ if (mysqli_num_rows($candidates_result) > 0) {
             <th><input type='checkbox' class='select-all' onclick='toggleAll(this, \"candidate-checkbox\")'> Select All</th>
             <th>ID</th>
             <th>Name</th>
+            <th>Class / Section</th>
             <th>Position</th>
             <th>Election</th>
           </tr>";
@@ -229,7 +233,8 @@ if (mysqli_num_rows($candidates_result) > 0) {
         echo "<tr>";
         echo "<td><input type='checkbox' name='selected_candidates[]' value='" . $candidate['id'] . "' class='candidate-checkbox'></td>";
         echo "<td>" . $candidate['id'] . "</td>";
-        echo "<td>" . $candidate['name'] . "</td>";
+        echo "<td>" . htmlspecialchars($candidate['name']) . "</td>";
+        echo "<td>" . htmlspecialchars($candidate['class_section'] ?? '') . "</td>";
         echo "<td>" . $candidate['position_title'] . "</td>";
         echo "<td>" . $candidate['election_title'] . "</td>";
         echo "</tr>";
@@ -245,7 +250,9 @@ echo "</div>";
 // Check votes
 echo "<div class='section'>";
 echo "<h3>Votes</h3>";
-$votes_sql = "SELECT v.*, vc.code as voting_code, c.name as candidate_name, p.title as position_title, e.title as election_title 
+$votes_sql = "SELECT v.*, vc.code as voting_code, c.name as candidate_name,
+              " . candidate_class_section_select_expr($conn, 'c') . ",
+              p.title as position_title, e.title as election_title 
               FROM votes v 
               JOIN voting_codes vc ON v.voting_code_id = vc.id 
               JOIN candidates c ON v.candidate_id = c.id 
@@ -255,13 +262,14 @@ $votes_sql = "SELECT v.*, vc.code as voting_code, c.name as candidate_name, p.ti
 $votes_result = mysqli_query($conn, $votes_sql);
 if (mysqli_num_rows($votes_result) > 0) {
     echo "<table>";
-    echo "<tr><th>ID</th><th>Voting Code</th><th>Candidate</th><th>Position</th><th>Election</th><th>Created At</th></tr>";
+    echo "<tr><th>ID</th><th>Voting Code</th><th>Candidate</th><th>Class / Section</th><th>Position</th><th>Election</th><th>Created At</th></tr>";
     while ($vote = mysqli_fetch_assoc($votes_result)) {
         echo "<tr>";
         echo "<td>" . $vote['id'] . "</td>";
         echo "<td>" . $vote['voting_code'] . "</td>";
-        echo "<td>" . $vote['candidate_name'] . "</td>";
-        echo "<td>" . $vote['position_title'] . "</td>";
+        echo "<td>" . htmlspecialchars($vote['candidate_name']) . "</td>";
+        echo "<td>" . htmlspecialchars($vote['class_section'] ?? '') . "</td>";
+        echo "<td>" . htmlspecialchars($vote['position_title']) . "</td>";
         echo "<td>" . $vote['election_title'] . "</td>";
         echo "<td>" . $vote['created_at'] . "</td>";
         echo "</tr>";

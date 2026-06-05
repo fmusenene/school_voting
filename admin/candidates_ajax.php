@@ -10,6 +10,7 @@ header('Content-Type: application/json');
 require_once __DIR__ . '/includes/init.php';
 require_once __DIR__ . '/includes/database.php';
 require_once __DIR__ . '/../config/candidate_description_column.php';
+require_once __DIR__ . '/../config/candidate_class_section.php';
 require_once __DIR__ . '/includes/session.php';
 
 // Function to send JSON response
@@ -46,6 +47,8 @@ try {
         sendJsonResponse(false, 'Database connection error');
     }
 
+    ensure_candidate_class_section_column($conn);
+
     // Handle POST requests
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? '';
@@ -75,7 +78,7 @@ try {
                     // Add search condition
                     if (!empty($search)) {
                         $searchEscaped = mysqli_real_escape_string($conn, $search);
-                        $query .= " AND (c.name LIKE '%$searchEscaped%' OR p.title LIKE '%$searchEscaped%' OR e.title LIKE '%$searchEscaped%')";
+                        $query .= " AND (c.name LIKE '%$searchEscaped%' OR COALESCE(c.class_section, '') LIKE '%$searchEscaped%' OR p.title LIKE '%$searchEscaped%' OR e.title LIKE '%$searchEscaped%')";
                     }
 
                     // Add election filter if provided

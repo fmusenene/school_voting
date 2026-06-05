@@ -88,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'get_single') {
     }
 
     try {
-        $sql = "SELECT c.*" . candidate_description_select_suffix($conn) . ", p.title as position_title, e.title as election_title
+        $sql = "SELECT c.*" . candidate_description_select_suffix($conn) . candidate_class_section_select_suffix($conn) . ", p.title as position_title, e.title as election_title
                 FROM candidates c
                 LEFT JOIN positions p ON c.position_id = p.id
                 LEFT JOIN elections e ON p.election_id = e.id
@@ -235,7 +235,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $action === 'edit') {
         }
 
         // Fetch updated data to return
-        $select_sql = "SELECT c.*" . candidate_description_select_suffix($conn) . ", p.title as position_title, e.title as election_title
+        $select_sql = "SELECT c.*" . candidate_description_select_suffix($conn) . candidate_class_section_select_suffix($conn) . ", p.title as position_title, e.title as election_title
                        FROM candidates c
                        LEFT JOIN positions p ON c.position_id = p.id
                        LEFT JOIN elections e ON p.election_id = e.id
@@ -548,6 +548,8 @@ require_once "includes/header.php"; // Assumes this outputs <!DOCTYPE html> etc.
     .candidates-table tbody tr:first-child td { border-top: none; }
     .candidates-table tbody tr:hover { background-color: var(--primary-light); }
     .candidates-table .candidate-name { font-weight: 600; color: var(--dark-color); font-size: 0.95rem;}
+    .candidates-table .candidate-name .candidate-meta,
+    .candidates-table .candidate-name .candidate-class-section { font-weight: 500; font-size: 0.85rem; color: var(--secondary-color); margin-left: 0.25rem; }
     .candidates-table .position-details { font-size: 0.85rem; color: var(--secondary-color); display: block; max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
     .candidates-table .candidate-photo { width: 45px; height: 45px; border-radius: 50%; object-fit: cover; border: 2px solid var(--gray-200); box-shadow: var(--shadow-sm);}
     .candidates-table .action-buttons .btn { padding: 0.25rem 0.5rem; font-size: 0.8rem; margin-left: 0.3rem; box-shadow: var(--shadow-sm); border-radius: var(--border-radius); transition: transform 0.1s ease-out; }
@@ -724,12 +726,7 @@ require_once "includes/header.php"; // Assumes this outputs <!DOCTYPE html> etc.
                                                  onerror="this.src='assets/images/default-avatar.png'; this.onerror=null;">
                                         </td>
                                         <td>
-                                            <span class="candidate-name"><?php echo htmlspecialchars($candidate['name']); ?></span>
-                                            <?php if (!empty($candidate['class_section'])): ?>
-                                            <small class="position-details d-block text-muted">
-                                                (<?php echo htmlspecialchars($candidate['class_section']); ?>)
-                                            </small>
-                                            <?php endif; ?>
+                                            <span class="candidate-name"><?php echo htmlspecialchars($candidate['name']); ?><?php echo candidate_class_section_display_html($candidate['class_section'] ?? '', 'candidate-meta'); ?></span>
                                             <?php if(!empty($candidate['description'])): ?>
                                             <small class="position-details d-block text-muted" title="<?php echo htmlspecialchars($candidate['description']); ?>">
                                                 <?php echo htmlspecialchars($candidate['description']); ?>

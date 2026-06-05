@@ -9,6 +9,7 @@ date_default_timezone_set('Africa/Nairobi'); // EAT
 
 require_once "../config/database.php"; // Provides $conn (mysqli connection)
 require_once "../config/candidate_description_column.php";
+require_once "../config/candidate_class_section.php";
 require_once "../config/candidate_photo_upload.php";
 require_once "includes/session.php"; // Provides isAdminLoggedIn() - Ensure this is correct path
 
@@ -49,6 +50,7 @@ try {
     // --- Get and Validate Inputs ---
     $candidate_id = isset($_POST['candidate_id']) ? (int)trim($_POST['candidate_id']) : 0;
     $name = trim($_POST['name'] ?? '');
+    $class_section = trim($_POST['class_section'] ?? '');
     $description = trim($_POST['description'] ?? ''); // Allow empty
     $position_id = isset($_POST['position_id']) ? (int)trim($_POST['position_id']) : 0;
 
@@ -77,13 +79,16 @@ try {
     }
 
     // --- Sanitize/Escape Data for SQL ---
+    ensure_candidate_class_section_column($conn);
     $name_escaped = mysqli_real_escape_string($conn, $name);
+    $class_section_escaped = mysqli_real_escape_string($conn, $class_section);
     $description_escaped = mysqli_real_escape_string($conn, $description);
 
     // --- Construct Single Conditional UPDATE SQL ---
     $sql = "UPDATE candidates SET ";
     $textCol = candidate_text_column_name($conn);
     $sql .= "name = '$name_escaped', ";              // Quote escaped string
+    $sql .= "class_section = '$class_section_escaped', ";
     $sql .= "$textCol = '$description_escaped', "; // physical column: description or bio
     $sql .= "position_id = $position_id ";           // Integer, no quotes
 

@@ -228,7 +228,7 @@ if (!$results_error) { // Proceed only if no critical error yet
             e.id as election_id, COALESCE(e.title, 'Untitled Election') as election_title, e.status as election_status,
             p.id as position_id, COALESCE(p.title, 'Untitled Position') as position_title,
             c.id as candidate_id, COALESCE(c.name, 'N/A') as candidate_name, c.photo as candidate_photo,
-            COALESCE(c.class_section, '') as candidate_class_section,
+            " . candidate_class_section_select_expr($conn, 'c', 'candidate_class_section') . ",
             $voteCountExpr as vote_count
         FROM positions p
         INNER JOIN elections e ON p.election_id = e.id
@@ -604,9 +604,7 @@ require_once "includes/header.php";
                             <div class="candidate-details-col">
                                 <div class="candidate-name-row">
                                     <h6 class="candidate-name"><?php echo htmlspecialchars($candidate['candidate_name']); ?></h6>
-                                    <?php if (!empty($candidate['candidate_class_section'])): ?>
-                                        <span class="candidate-meta">(<?php echo htmlspecialchars($candidate['candidate_class_section']); ?>)</span>
-                                    <?php endif; ?>
+                                    <?php echo candidate_class_section_display_html($candidate['candidate_class_section'] ?? '', 'candidate-meta'); ?>
                                     <?php if ($candidate['is_winner'] ?? false): ?>
                                         <span class="winner-badge"><i class="bi bi-star-fill"></i> Winner</span>
                                     <?php endif; ?>
@@ -832,8 +830,8 @@ function exportToPDF() {
 function exportToExcel() {
      if (typeof XLSX === 'undefined') { alert('Excel export library (SheetJS) not loaded.'); return; }
      const loader = showLoader("Generating Excel...");
-     const data = [['Election', 'Position', 'Candidate', 'Votes', 'Percentage (%)', 'Winner']]; // Header Row
-     document.querySelectorAll('.election-results-card').forEach(eCard => { const eTitle = eCard.querySelector('.card-header span:first-child')?.textContent.trim() || 'N/A'; eCard.querySelectorAll('.position-results').forEach(pDiv => { const pTitleH = pDiv.querySelector('.position-header'); let pTitle = 'N/A'; if(pTitleH) { const pMatch = pTitleH.textContent.trim().match(/^(.*?)\s*\(/); pTitle = pMatch ? pMatch[1].trim() : pTitleH.textContent.trim(); } pDiv.querySelectorAll('.candidate-result-item').forEach(item => { const cNameEl = item.querySelector('.candidate-name'); let cName = 'N/A'; if(cNameEl) { cName = cNameEl.textContent.trim(); } const voteText = item.querySelector('.candidate-vote-count')?.textContent.trim() || '0'; const votes = parseInt(voteText.replace(/,/g, ''), 10) || 0; const perc = parseFloat(item.querySelector('.progress-percent-label')?.textContent.trim().replace(/[()%]/g, '')) || 0.0; const isWinner = item.querySelector('.winner-badge') ? 'Yes' : 'No'; data.push([eTitle, pTitle, cName, votes, perc, isWinner]); }); if(pDiv.querySelectorAll('.candidate-result-item').length === 0) data.push([eTitle, pTitle, 'No Candidates', 0, 0.0, 'No']); }); if(eCard.querySelectorAll('.position-results').length === 0) data.push([eTitle, 'No Positions', '', 0, 0.0, 'No']); });
+     const data = [['Election', 'Position', 'Candidate', 'Class / Section', 'Votes', 'Percentage (%)', 'Winner']]; // Header Row
+     document.querySelectorAll('.election-results-card').forEach(eCard => { const eTitle = eCard.querySelector('.card-header span:first-child')?.textContent.trim() || 'N/A'; eCard.querySelectorAll('.position-results').forEach(pDiv => { const pTitleH = pDiv.querySelector('.position-header'); let pTitle = pTitleH ? pTitleH.textContent.trim() : 'N/A'; pDiv.querySelectorAll('.candidate-result-item').forEach(item => { const cNameEl = item.querySelector('.candidate-name'); let cName = cNameEl ? cNameEl.textContent.trim() : 'N/A'; const classEl = item.querySelector('.candidate-meta, .candidate-class-section'); let cClass = classEl ? classEl.textContent.trim().replace(/^\(|\)$/g, '') : ''; const voteText = item.querySelector('.candidate-vote-count')?.textContent.trim() || '0'; const votes = parseInt(voteText.replace(/,/g, ''), 10) || 0; const perc = parseFloat(item.querySelector('.progress-percent-label')?.textContent.trim().replace(/[()%]/g, '')) || 0.0; const isWinner = item.querySelector('.winner-badge') ? 'Yes' : 'No'; data.push([eTitle, pTitle, cName, cClass, votes, perc, isWinner]); }); if(pDiv.querySelectorAll('.candidate-result-item').length === 0) data.push([eTitle, pTitle, 'No Candidates', '', 0, 0.0, 'No']); }); if(eCard.querySelectorAll('.position-results').length === 0) data.push([eTitle, 'No Positions', '', '', 0, 0.0, 'No']); });
      if(data.length <= 1) { hideLoader(loader); alert("No data to export."); return; }
      try { const ws = XLSX.utils.aoa_to_sheet(data); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Election Results'); const cols = data[0].map((_, i) => ({ wch: data.reduce((w, r) => Math.max(w, (r[i] || '').toString().length), 10) + 1 })); ws['!cols'] = cols; XLSX.writeFile(wb, 'election_results.xlsx'); } catch(e) { console.error("Excel Error:", e); alert("Failed to generate Excel."); } finally { hideLoader(loader); }
 }

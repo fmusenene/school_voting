@@ -2,6 +2,7 @@
 session_start();
 require_once "../config/database.php"; // Assumes $conn is a mysqli object
 require_once "../config/candidate_description_column.php";
+require_once "../config/candidate_class_section.php";
 require_once "../config/candidate_photo_upload.php";
 
 // --- Response Helper Function ---
@@ -46,6 +47,7 @@ try {
     // --- Get and Validate Inputs ---
     $candidate_id = isset($_POST['candidate_id']) ? (int)trim($_POST['candidate_id']) : 0;
     $name = trim($_POST['name'] ?? '');
+    $class_section = trim($_POST['class_section'] ?? '');
     $description = trim($_POST['description'] ?? ''); // Allow empty description
     $position_id = isset($_POST['position_id']) ? (int)trim($_POST['position_id']) : 0;
 
@@ -63,7 +65,9 @@ try {
 
 
     // --- Sanitize/Escape Data for SQL ---
+    ensure_candidate_class_section_column($conn);
     $name_escaped = $conn->real_escape_string($name);
+    $class_section_escaped = $conn->real_escape_string($class_section);
     $description_escaped = $conn->real_escape_string($description);
     // **Crucially, escape the file path string as well**
     $photo_path_escaped = $conn->real_escape_string($photo_path);
@@ -72,6 +76,7 @@ try {
     $update_sql = "UPDATE candidates SET ";
     $textCol = candidate_text_column_name($conn);
     $update_sql .= "name = '$name_escaped', "; // Quote escaped string
+    $update_sql .= "class_section = '$class_section_escaped', ";
     $update_sql .= "$textCol = '$description_escaped', "; // physical column: description or bio
     $update_sql .= "position_id = $position_id "; // Integer, no quotes
 
@@ -93,7 +98,8 @@ try {
     // Update successful (or no rows affected but query OK), now fetch updated data
 
     // --- Construct SELECT Query ---
-    $select_sql = "SELECT c.*" . candidate_description_select_suffix($conn) . ", p.title as position_title, e.title as election_title
+    ensure_candidate_class_section_column($conn);
+    $select_sql = "SELECT c.*" . candidate_description_select_suffix($conn) . candidate_class_section_select_suffix($conn) . ", p.title as position_title, e.title as election_title
                    FROM candidates c
                    LEFT JOIN positions p ON c.position_id = p.id
                    LEFT JOIN elections e ON p.election_id = e.id

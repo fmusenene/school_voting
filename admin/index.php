@@ -2,6 +2,9 @@
 require_once "includes/session.php";
 requireAdminLogin();
 require_once "../config/database.php";
+require_once "../config/candidate_class_section.php";
+
+ensure_candidate_class_section_column($conn);
 
 require_once "includes/header.php";
 
@@ -47,6 +50,7 @@ $recent_votes_sql = "SELECT
     v.candidate_id,
     v.voting_code_id,
     c.name as candidate_name,
+    " . candidate_class_section_select_expr($conn, 'c') . ",
     c.photo as candidate_photo,
     p.title as position_title,
     e.title as election_title,
@@ -367,6 +371,7 @@ try {
                                             <?php endif; ?>
                                             <a href="candidates.php?id=<?php echo $vote['candidate_id']; ?>" class="text-decoration-none">
                                                 <span class="fw-medium text-dark"><?php echo htmlspecialchars($vote['candidate_name']); ?></span>
+                                                <?php echo candidate_class_section_display_html($vote['class_section'] ?? '', 'text-muted small ms-1'); ?>
                                             </a>
                                         </div>
                                     </td>

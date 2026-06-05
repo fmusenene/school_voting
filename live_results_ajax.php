@@ -24,6 +24,10 @@ if (!function_exists('send_json_response')) {
 // --- Includes (Corrected Paths relative to project root) ---
 require_once "config/database.php"; // Assumes config folder is directly under project root
 require_once "config/votes_schema.php";
+require_once "config/candidate_class_section.php";
+
+ensure_candidate_class_section_column($conn);
+$classSectionSelect = candidate_class_section_select_expr($conn, 'c');
  
 // --- Pre-Checks ---
 if (!$conn || $conn->connect_error) {
@@ -72,6 +76,7 @@ try {
     $positions_candidates_sql = "SELECT
                                     p.id as position_id, p.title as position_title,
                                     c.id as candidate_id, c.name as candidate_name, c.photo as candidate_photo,
+                                    $classSectionSelect,
                                     $voteCountExpr as vote_count
                                  FROM positions p
                                  LEFT JOIN candidates c ON p.id = c.position_id
@@ -90,7 +95,13 @@ try {
               if (!isset($positions_output[$pos_id])) { $positions_output[$pos_id] = ['id' => $pos_id,'title' => $row['position_title'],'total_votes' => 0,'candidates' => []]; }
               if ($row['candidate_id'] !== null) {
                    $vote_count = (int)$row['vote_count'];
-                   $positions_output[$pos_id]['candidates'][] = ['id' => (int)$row['candidate_id'],'name' => $row['candidate_name'],'photo' => $row['candidate_photo'],'vote_count' => $vote_count];
+                   $positions_output[$pos_id]['candidates'][] = [
+                       'id' => (int)$row['candidate_id'],
+                       'name' => $row['candidate_name'],
+                       'photo' => $row['candidate_photo'],
+                       'class_section' => trim((string)($row['class_section'] ?? '')),
+                       'vote_count' => $vote_count,
+                   ];
                    $positions_output[$pos_id]['total_votes'] += $vote_count;
               }
          }

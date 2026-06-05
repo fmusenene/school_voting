@@ -98,6 +98,7 @@ $pageTitle = "Live Election Results";
         .candidate-result-photo { width: 90px; height: 90px; border-radius: 50%; object-fit: cover; margin-right: 1.5rem; border: 3px solid var(--border-color); flex-shrink: 0; background-color: #eee; box-shadow: var(--shadow-sm); }
         .candidate-result-details { flex-grow: 1; }
         .candidate-result-name { font-size: 1.4rem; font-weight: 700; color: var(--text-dark); margin: 0 0 0.3rem 0; display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+        .candidate-result-class { font-size: 0.95rem; font-weight: 500; color: var(--text-muted); }
         .candidate-result-votes { font-size: 2rem; font-weight: 700; color: var(--primary-color); line-height: 1.1; }
         .candidate-result-percentage { font-size: 1.1rem; color: var(--text-muted); margin-left: .75rem; font-weight: 500;}
         .candidate-winner-badge { font-size: .8rem; font-weight: 700; padding: .35em .9em; background-color: var(--winner-text); color: var(--bg-white); border-radius: 50px; white-space: nowrap; }
@@ -230,6 +231,8 @@ $pageTitle = "Live Election Results";
                         const rawPhoto = (candidate.photo || '').trim().replace(/^\//, '');
                         const photoPath = rawPhoto ? helpers.escapeHtml(rawPhoto) : 'assets/images/default-avatar.png';
                         const winnerBadge = candidate.is_winner && position.total_votes > 0 ? '<span class="candidate-winner-badge"><i class="bi bi-check-circle-fill"></i> WINNER</span>' : '';
+                        const classSection = (candidate.class_section || '').trim();
+                        const classHtml = classSection ? `<span class="candidate-result-class">(${helpers.escapeHtml(classSection)})</span>` : '';
                         const percentage = candidate.percentage ?? 0;
                         const voteText = candidate.vote_count === 1 ? 'vote' : 'votes';
                         const progressBarWidth = (percentage < 1 && candidate.vote_count > 0) ? 1 : percentage;
@@ -239,7 +242,7 @@ $pageTitle = "Live Election Results";
                                 <div class="candidate-result-info">
                                     <img src="${photoPath}" alt="${helpers.escapeHtml(candidate.name)}" class="candidate-result-photo" onerror="this.onerror=null; this.src='assets/images/default-avatar.png';">
                                     <div class="candidate-result-details">
-                                        <h4 class="candidate-result-name">${helpers.escapeHtml(candidate.name)} ${winnerBadge}</h4>
+                                        <h4 class="candidate-result-name">${helpers.escapeHtml(candidate.name)}${classHtml} ${winnerBadge}</h4>
                                         <div class="d-flex align-items-baseline flex-wrap">
                                             <span class="candidate-result-votes">${helpers.numberFormat(candidate.vote_count)} ${voteText}</span>
                                             ${position.total_votes > 0 ? `<span class="candidate-result-percentage">(${percentage}%)</span>` : ''}

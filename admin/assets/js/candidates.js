@@ -10,6 +10,13 @@ let currentSortOrder = 'asc';
 let currentSortField = 'name';
 let selectedCandidates = new Set();
 
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+}
+
 // Event Listeners
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize event listeners
@@ -167,7 +174,7 @@ function renderCandidates(candidates) {
             <td>
                 <input type="checkbox" class="candidate-checkbox" value="${candidate.id}">
             </td>
-            <td>${candidate.name}</td>
+            <td>${escapeHtml(candidate.name)}${candidate.class_section ? ` <span class="text-muted small">(${escapeHtml(candidate.class_section)})</span>` : ''}</td>
             <td>${candidate.position_title}</td>
             <td>${candidate.election_title}</td>
             <td>${candidate.vote_count}</td>
